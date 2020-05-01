@@ -2,6 +2,8 @@
 //2020/04/17
 
 #include <curses.h>
+#include <stdlib.h> //rand, srand関数で使用
+#include <time.h> //srand関数で使用
 
 //ぷよの色を表すの列挙型
 //NONEが無し，RED,BLUE,..が色を表す
@@ -72,16 +74,35 @@ void SetValue(unsigned int y, unsigned int x, puyocolor value)
 	data[y*GetColumn() + x] = value;
 }
 
+//puyocolorのメンバをランダムに与える関数
+void randColor(enum puyocolor &puyo)
+{
+	switch (rand()%4+1){
+		case 1:
+			puyo = RED;
+			break;
+		case 2:
+			puyo = BLUE;
+			break;
+		case 3:
+			puyo = GREEN;
+			break;
+		case 4:
+			puyo = YELLOW;
+			break;
+	}
+}
 
 //盤面に新しいぷよ生成
 void GeneratePuyo()
 {
 	puyocolor newpuyo1;
-	newpuyo1 = RED;
-
 	puyocolor newpuyo2;
-	newpuyo2 = BLUE;
-
+	srand((unsigned int)time(NULL));
+	//ランダムなぷよ生成のためにrootを初期化
+	randColor(newpuyo1);
+	randColor(newpuyo2);
+	//puyocolorのメンバをランダムに与える
 	SetValue(0, 5, newpuyo1);
 	SetValue(0, 6, newpuyo2);
 }
@@ -261,22 +282,32 @@ void Display()
 				mvaddch(y, x, '.');
 				break;
 			case RED:
+				attrset(COLOR_PAIR(1));
+				//出力する文字色を変更
 				mvaddch(y, x, 'R');
+				attrset(COLOR_PAIR(0));
+				//出力する文字色を元に戻す
 				break;
 			case BLUE:
+				attrset(COLOR_PAIR(2));
 				mvaddch(y, x, 'B');
+				attrset(COLOR_PAIR(0));
 				break;
 			case GREEN:
+				attrset(COLOR_PAIR(3));
 				mvaddch(y, x, 'G');
+				attrset(COLOR_PAIR(0));
 				break;
 			case YELLOW:
+				attrset(COLOR_PAIR(4));
 				mvaddch(y, x, 'Y');
+				attrset(COLOR_PAIR(0));
 				break;
 			default:
 				mvaddch(y, x, '?');
 				break;
 			}
-			
+
 		}
 	}
 
@@ -321,6 +352,12 @@ int main(int argc, char **argv){
 	//キー入力非ブロッキングモード
 	timeout(0);
 
+	//出力の際に使用する色を定義
+	init_pair(0, COLOR_WHITE, COLOR_BLACK);
+	init_pair(1, COLOR_RED, COLOR_BLACK);
+	init_pair(2, COLOR_BLUE, COLOR_BLACK);
+	init_pair(3, COLOR_GREEN, COLOR_BLACK);
+	init_pair(4, COLOR_YELLOW, COLOR_BLACK);
 
 	//初期化処理
 	ChangeSize(LINES/2, COLS/2);	//フィールドは画面サイズの縦横1/2にする
@@ -366,7 +403,7 @@ int main(int argc, char **argv){
 		if (delay%waitCount == 0){
 			//ぷよ下に移動
 			MoveDown();
-			
+
 			//ぷよ着地判定
 			if (LandingPuyo())
 			{
