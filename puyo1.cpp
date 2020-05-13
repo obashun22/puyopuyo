@@ -1,5 +1,26 @@
 //課題
-//2020/05/01
+//2020/05/08
+
+/*
+【メモ】
+PuyoArrayActiveとPuyoArrayStackでPuyoArrayを継承
+PuyoArrayActive型を引数に取るように変更
+PuyoArrayActiveとPuyoArrayStackをpuyoとstackとして実体化
+puyoとstackの盤面を生成
+着地した際にpuyoからstackにぷよの情報を引き渡してpuyoは削除しGeneratePuyo
+Display関数は表示マスの状態の判定においてpuyoとstackの情報を重ねて判定
+情報を統合するためMerge関数を作成
+Display関数のぷよ数カウント処理でMarge関数を使用
+ぷよがセットで着地するようにどちらかの着地判定がされたらpuyoの状態を全てstackに引き渡す
+左右下に移動させる時の条件を追加してめり込まない様に変更
+やったことをざっくりまとめると
+- puyoとstackに弁面情報を分割
+- どちらかの着地判定の際にpuyoからstackに情報をすべて引き渡してpuyoを削除
+- puyoとstackの盤面情報をMerge関数で統合して表示
+- ぷよ数をMerge関数を通してカウント
+- 左右下移動時の制限条件を追加
+今後の展望として下矢印入力で一番下まで落ちる使用を追加する
+*/
 
 #include <curses.h>
 #include <stdlib.h> //rand, srand関数で使用
@@ -90,7 +111,17 @@ private:
 	}
 };
 
+//「落下中」ぷよを管理するクラス
+class PuyoArrayActive: public PuyoArray
+{
 
+};
+
+//「着地済み」ぷよを管理するクラス
+class PuyoArrayStack: public PuyoArray
+{
+
+};
 
 //ぷよの発生・移動等のぷよ管理を行うクラス
 class PuyoControl
@@ -116,7 +147,7 @@ public:
 	}
 
 	//盤面に新しいぷよ生成
-	void GeneratePuyo(PuyoArray &puyo)
+	void GeneratePuyo(PuyoArrayActive &puyo)
 	{
 		puyocolor newpuyo1;
 		puyocolor newpuyo2;
@@ -130,7 +161,7 @@ public:
 	}
 
 	//ぷよの着地判定．着地判定があるとtrueを返す
-	bool LandingPuyo(PuyoArray &puyo)
+	bool LandingPuyo(PuyoArrayActive &puyo, PuyoArrayStack &stack)
 	{
 		bool landed = false;
 
@@ -138,21 +169,30 @@ public:
 		{
 			for (int x = 0; x < puyo.GetColumn(); x++)
 			{
-				if (puyo.GetValue(y, x) != NONE && y == puyo.GetLine() - 1)
+				//ぷよが最低座標に位置しているまたは一つ下にぷよが存在する場合の処理
+				if (puyo.GetValue(y, x) != NONE && (y == puyo.GetLine() - 1 || stack.GetValue(y + 1, x) != NONE))
 				{
 					landed = true;
-
 					//着地判定されたぷよを消す．本処理は必要に応じて変更する．
-					puyo.SetValue(y, x, NONE);
+					//どちらかが着地した時にすべてのぷよをstackに引き渡す
+					for (int i = 0; i < puyo.GetLine(); i++){
+						for (int j = 0; j < puyo.GetColumn(); j++){
+							if (puyo.GetValue(j, i) == NONE) {
+								continue;
+							} else {
+								stack.SetValue(j, i, puyo.GetValue(j, i));
+								puyo.SetValue(j, i, NONE);
+							}
+						}
+					}
 				}
 			}
 		}
-
 		return landed;
 	}
 
 	//左移動
-	void MoveLeft(PuyoArray &puyo)
+	void MoveLeft(PuyoArrayActive &puyo, PuyoArrayStack &stack)
 	{
 		//一時的格納場所メモリ確保
 		puyocolor *puyo_temp = new puyocolor[puyo.GetLine()*puyo.GetColumn()];
@@ -170,8 +210,8 @@ public:
 				if (puyo.GetValue(y, x) == NONE) {
 					continue;
 				}
-
-				if (0 < x && puyo.GetValue(y, x - 1) == NONE)
+				//最左縁ではなく左に何も存在しない場合の処理
+				if (0 < x && puyo.GetValue(y, x - 1) == NONE && stack.GetValue(y, x - 1) == NONE)
 				{
 					puyo_temp[y*puyo.GetColumn() + (x - 1)] = puyo.GetValue(y, x);
 					//コピー後に元位置のpuyoactiveのデータは消す
@@ -179,6 +219,7 @@ public:
 				}
 				else
 				{
+					//上記の場合に当てはまらない場合に値を引き継ぐ処理
 					puyo_temp[y*puyo.GetColumn() + x] = puyo.GetValue(y, x);
 				}
 			}
@@ -198,7 +239,7 @@ public:
 	}
 
 	//右移動
-	void MoveRight(PuyoArray &puyo)
+	void MoveRight(PuyoArrayActive &puyo, PuyoArrayStack &stack)
 	{
 		//一時的格納場所メモリ確保
 		puyocolor *puyo_temp = new puyocolor[puyo.GetLine()*puyo.GetColumn()];
@@ -216,8 +257,8 @@ public:
 				if (puyo.GetValue(y, x) == NONE) {
 					continue;
 				}
-
-				if (x < puyo.GetColumn() - 1 && puyo.GetValue(y, x + 1) == NONE)
+				//最右縁ではなく右に何も存在しない場合の処理
+				if (x < puyo.GetColumn() - 1 && puyo.GetValue(y, x + 1) == NONE && stack.GetValue(y, x + 1) == NONE)
 				{
 					puyo_temp[y*puyo.GetColumn() + (x + 1)] = puyo.GetValue(y, x);
 					//コピー後に元位置のpuyoactiveのデータは消す
@@ -225,6 +266,7 @@ public:
 				}
 				else
 				{
+					//上記の場合に当てはまらない場合に値を引き継ぐ処理
 					puyo_temp[y*puyo.GetColumn() + x] = puyo.GetValue(y, x);
 				}
 			}
@@ -244,7 +286,7 @@ public:
 	}
 
 	//下移動
-	void MoveDown(PuyoArray &puyo)
+	void MoveDown(PuyoArrayActive &puyo, PuyoArrayStack &stack)
 	{
 		//一時的格納場所メモリ確保
 		puyocolor *puyo_temp = new puyocolor[puyo.GetLine()*puyo.GetColumn()];
@@ -262,8 +304,8 @@ public:
 				if (puyo.GetValue(y, x) == NONE) {
 					continue;
 				}
-
-				if (y < puyo.GetLine() - 1 && puyo.GetValue(y + 1, x) == NONE)
+				//最下縁ではなく下に何も存在しない場合の処理
+				if (y < puyo.GetLine() - 1 && puyo.GetValue(y + 1, x) == NONE && stack.GetValue(y + 1, x) == NONE)
 				{
 					puyo_temp[(y + 1)*puyo.GetColumn() + x] = puyo.GetValue(y, x);
 					//コピー後に元位置のpuyoactiveのデータは消す
@@ -271,6 +313,7 @@ public:
 				}
 				else
 				{
+					//上記の場合に当てはまらない場合に値を引き継ぐ処理
 					puyo_temp[y*puyo.GetColumn() + x] = puyo.GetValue(y, x);
 				}
 			}
@@ -290,17 +333,25 @@ public:
 	}
 };
 
-
+//puyoとstackのぷよの情報を統合するための関数
+puyocolor Merge(PuyoArrayActive &puyo, PuyoArrayStack &stack, int y, int x)
+{
+	if (puyo.GetValue(y, x) != NONE){
+		return puyo.GetValue(y, x);
+	} else {
+		return stack.GetValue(y, x);
+	}
+}
 
 //表示
-void Display(PuyoArray &puyo)
+void Display(PuyoArrayActive &puyo, PuyoArrayStack &stack)
 {
 	//落下中ぷよ表示
 	for (int y = 0; y < puyo.GetLine(); y++)
 	{
 		for (int x = 0; x < puyo.GetColumn(); x++)
 		{
-			switch (puyo.GetValue(y, x))
+			switch (Merge(puyo, stack, y, x))
 			{
 			case NONE:
 				mvaddch(y, x, '.');
@@ -340,7 +391,7 @@ void Display(PuyoArray &puyo)
 	{
 		for (int x = 0; x < puyo.GetColumn(); x++)
 		{
-			if (puyo.GetValue(y, x) != NONE)
+			if (Merge(puyo, stack, y, x) != NONE)
 			{
 				count++;
 			}
@@ -353,7 +404,6 @@ void Display(PuyoArray &puyo)
 
 	refresh();
 }
-
 
 
 //ここから実行される
@@ -382,11 +432,13 @@ int main(int argc, char **argv){
 	init_pair(3, COLOR_GREEN, COLOR_BLACK);
 	init_pair(4, COLOR_YELLOW, COLOR_BLACK);
 
-	PuyoArray puyo;
+	PuyoArrayActive puyo;
+	PuyoArrayStack stack;
 	PuyoControl control;
 
 	//初期化処理
 	puyo.ChangeSize(LINES/2, COLS/2);	//フィールドは画面サイズの縦横1/2にする
+	stack.ChangeSize(LINES/2, COLS/2);
 	control.GeneratePuyo(puyo);	//最初のぷよ生成
 
 	int delay = 0;
@@ -412,10 +464,10 @@ int main(int argc, char **argv){
 		switch (ch)
 		{
 		case KEY_LEFT:
-			control.MoveLeft(puyo);
+			control.MoveLeft(puyo, stack);
 			break;
 		case KEY_RIGHT:
-			control.MoveRight(puyo);
+			control.MoveRight(puyo, stack);
 			break;
 		case 'z':
 			//ぷよ回転処理
@@ -427,10 +479,11 @@ int main(int argc, char **argv){
 		//処理速度調整のためのif文
 		if (delay%waitCount == 0){
 			//ぷよ下に移動
-			control.MoveDown(puyo);
+			control.MoveDown(puyo, stack);
 
+			//着地判定があると新しいぷよを生成
 			//ぷよ着地判定
-			if (control.LandingPuyo(puyo))
+			if (control.LandingPuyo(puyo, stack))
 			{
 				//着地していたら新しいぷよ生成
 				control.GeneratePuyo(puyo);
@@ -439,7 +492,7 @@ int main(int argc, char **argv){
 		delay++;
 
 		//表示
-		Display(puyo);
+		Display(puyo, stack);
 	}
 
 	//画面をリセット
