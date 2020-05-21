@@ -1,25 +1,11 @@
 //課題
-//2020/05/08
+//2020/05/15
 
 /*
 【メモ】
-PuyoArrayActiveとPuyoArrayStackでPuyoArrayを継承
-PuyoArrayActive型を引数に取るように変更
-PuyoArrayActiveとPuyoArrayStackをpuyoとstackとして実体化
-puyoとstackの盤面を生成
-着地した際にpuyoからstackにぷよの情報を引き渡してpuyoは削除しGeneratePuyo
-Display関数は表示マスの状態の判定においてpuyoとstackの情報を重ねて判定
-情報を統合するためMerge関数を作成
-Display関数のぷよ数カウント処理でMarge関数を使用
-ぷよがセットで着地するようにどちらかの着地判定がされたらpuyoの状態を全てstackに引き渡す
-左右下に移動させる時の条件を追加してめり込まない様に変更
-やったことをざっくりまとめると
-- puyoとstackに弁面情報を分割
-- どちらかの着地判定の際にpuyoからstackに情報をすべて引き渡してpuyoを削除
-- puyoとstackの盤面情報をMerge関数で統合して表示
-- ぷよ数をMerge関数を通してカウント
-- 左右下移動時の制限条件を追加
-今後の展望として下矢印入力で一番下まで落ちる使用を追加する
+添付ファイルに用意された関数VanishPuyoを用いて
+着地判定の後にstackのぷよが4つ以上連結していたら
+消えるような仕様に変更
 */
 
 #include <curses.h>
@@ -331,6 +317,125 @@ public:
 		//一時的格納場所メモリ解放
 		delete[] puyo_temp;
 	}
+
+	//各マスにおいてぷよの連結があるかを確認する関数
+	int VanishPuyo(PuyoArrayStack &puyostack)
+	{
+		int vanishednumber = 0;
+		for (int y = 0; y < puyostack.GetLine(); y++)
+		{
+			for (int x = 0; x < puyostack.GetColumn(); x++)
+			{
+				vanishednumber += VanishPuyo(puyostack, y, x);
+			}
+		}
+
+		return vanishednumber;
+	}
+
+	//あるマスにおいて4つ以上のぷよの連結があるかを確認してあれば削除する関数
+	int VanishPuyo(PuyoArrayStack &puyostack, unsigned int y, unsigned int x)
+	{
+		if (puyostack.GetValue(y, x) == NONE)
+		{
+			return 0;
+		}
+
+		enum checkstate{ NOCHECK, CHECKING, CHECKED };
+
+		enum checkstate *field_array_check;
+		field_array_check = new enum checkstate[puyostack.GetLine()*puyostack.GetColumn()];
+
+		for (int i = 0; i < puyostack.GetLine()*puyostack.GetColumn(); i++)
+		{
+			field_array_check[i] = NOCHECK;
+		}
+
+		field_array_check[y*puyostack.GetColumn() + x] = CHECKING;
+
+		bool checkagain = true;
+		while (checkagain)
+		{
+			checkagain = false;
+
+			for (int y = 0; y < puyostack.GetLine(); y++)
+			{
+				for (int x = 0; x < puyostack.GetColumn(); x++)
+				{
+					if (field_array_check[y*puyostack.GetColumn() + x] == CHECKING)
+					{
+						if (x < puyostack.GetColumn() - 1)
+						{
+							if (puyostack.GetValue(y, x + 1) == puyostack.GetValue(y, x) && field_array_check[y*puyostack.GetColumn() + (x + 1)] == NOCHECK)
+							{
+								field_array_check[y*puyostack.GetColumn() + (x + 1)] = CHECKING;
+								checkagain = true;
+							}
+						}
+
+						if (x > 0)
+						{
+							if (puyostack.GetValue(y, x - 1) == puyostack.GetValue(y, x) && field_array_check[y*puyostack.GetColumn() + (x - 1)] == NOCHECK)
+							{
+								field_array_check[y*puyostack.GetColumn() + (x - 1)] = CHECKING;
+								checkagain = true;
+							}
+						}
+
+						if (y < puyostack.GetLine() - 1)
+						{
+							if (puyostack.GetValue(y + 1, x) == puyostack.GetValue(y, x) && field_array_check[(y + 1)*puyostack.GetColumn() + x] == NOCHECK)
+							{
+								field_array_check[(y + 1)*puyostack.GetColumn() + x] = CHECKING;
+								checkagain = true;
+							}
+						}
+
+						if (y > 0)
+						{
+							if (puyostack.GetValue(y - 1, x) == puyostack.GetValue(y, x) && field_array_check[(y - 1)*puyostack.GetColumn() + x] == NOCHECK)
+							{
+								field_array_check[(y - 1)*puyostack.GetColumn() + x] = CHECKING;
+								checkagain = true;
+							}
+						}
+
+						field_array_check[y*puyostack.GetColumn() + x] = CHECKED;
+					}
+				}
+			}
+		}
+
+		int puyocount = 0;
+		for (int i = 0; i < puyostack.GetLine()*puyostack.GetColumn(); i++)
+		{
+			if (field_array_check[i] == CHECKED)
+			{
+				puyocount++;
+			}
+		}
+
+		int vanishednumber = 0;
+		if (4 <= puyocount)
+		{
+			for (int y = 0; y < puyostack.GetLine(); y++)
+			{
+				for (int x = 0; x < puyostack.GetColumn(); x++)
+				{
+					if (field_array_check[y*puyostack.GetColumn() + x] == CHECKED)
+					{
+						puyostack.SetValue(y, x, NONE);
+
+						vanishednumber++;
+					}
+				}
+			}
+		}
+
+		delete[] field_array_check;
+
+		return vanishednumber;
+	}
 };
 
 //puyoとstackのぷよの情報を統合するための関数
@@ -485,6 +590,8 @@ int main(int argc, char **argv){
 			//ぷよ着地判定
 			if (control.LandingPuyo(puyo, stack))
 			{
+				//着地したらぷよが4つ以上連結していないかチェックする
+				control.VanishPuyo(stack);
 				//着地していたら新しいぷよ生成
 				control.GeneratePuyo(puyo);
 			}
