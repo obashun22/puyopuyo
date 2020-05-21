@@ -6,6 +6,14 @@
 添付ファイルに用意された関数VanishPuyoを用いて
 着地判定の後にstackのぷよが4つ以上連結していたら
 消えるような仕様に変更
+【To Do】
+- [x] 着地判定後落下できるぷよを落下させて連結ぷよ削除
+- [x] 下ボタンで瞬時に落下
+- [] 回転をつける
+- [] スコアをつける
+- [] 次のぷよを表示
+- [] ゲームオーバー機能をつける
+- [] 音楽・BGMをつける
 */
 
 #include <curses.h>
@@ -322,6 +330,7 @@ public:
 	int VanishPuyo(PuyoArrayStack &puyostack)
 	{
 		int vanishednumber = 0;
+		//すべてのマスにおいて4以上の連結ぷよの削除を実行
 		for (int y = 0; y < puyostack.GetLine(); y++)
 		{
 			for (int x = 0; x < puyostack.GetColumn(); x++)
@@ -330,42 +339,53 @@ public:
 			}
 		}
 
+		//トータルの削除したぷよ数を返す
 		return vanishednumber;
 	}
 
 	//あるマスにおいて4つ以上のぷよの連結があるかを確認してあれば削除する関数
 	int VanishPuyo(PuyoArrayStack &puyostack, unsigned int y, unsigned int x)
 	{
+		//空のマスは飛ばす
 		if (puyostack.GetValue(y, x) == NONE)
 		{
 			return 0;
 		}
+		//以降ぷよが存在する場合のみの実行となる
 
 		enum checkstate{ NOCHECK, CHECKING, CHECKED };
 
+		//指定されたマスごとにチェック専用のメモリを確保する
 		enum checkstate *field_array_check;
 		field_array_check = new enum checkstate[puyostack.GetLine()*puyostack.GetColumn()];
 
+		//全盤面をNOCHECKに初期化
 		for (int i = 0; i < puyostack.GetLine()*puyostack.GetColumn(); i++)
 		{
 			field_array_check[i] = NOCHECK;
 		}
 
+		//指定されたマスをCHECKINGに変更
 		field_array_check[y*puyostack.GetColumn() + x] = CHECKING;
+
 
 		bool checkagain = true;
 		while (checkagain)
 		{
 			checkagain = false;
 
+			//CHECKINGを探す
 			for (int y = 0; y < puyostack.GetLine(); y++)
 			{
 				for (int x = 0; x < puyostack.GetColumn(); x++)
 				{
+					//CHECKINGを指しているときのみ実行
 					if (field_array_check[y*puyostack.GetColumn() + x] == CHECKING)
 					{
+						//最右縁でない場合
 						if (x < puyostack.GetColumn() - 1)
 						{
+							//ぷよが右隣と同じかつ右隣がまだ未確認だった場合
 							if (puyostack.GetValue(y, x + 1) == puyostack.GetValue(y, x) && field_array_check[y*puyostack.GetColumn() + (x + 1)] == NOCHECK)
 							{
 								field_array_check[y*puyostack.GetColumn() + (x + 1)] = CHECKING;
@@ -373,8 +393,10 @@ public:
 							}
 						}
 
+						//最左縁でない場合
 						if (x > 0)
 						{
+							//ぷよが左隣と同じかつ左隣がまだ未確認だった場合
 							if (puyostack.GetValue(y, x - 1) == puyostack.GetValue(y, x) && field_array_check[y*puyostack.GetColumn() + (x - 1)] == NOCHECK)
 							{
 								field_array_check[y*puyostack.GetColumn() + (x - 1)] = CHECKING;
@@ -382,8 +404,10 @@ public:
 							}
 						}
 
+						//最下縁ではない場合
 						if (y < puyostack.GetLine() - 1)
 						{
+							//ぷよが直下と同じかつ直下がまだ未確認だった場合
 							if (puyostack.GetValue(y + 1, x) == puyostack.GetValue(y, x) && field_array_check[(y + 1)*puyostack.GetColumn() + x] == NOCHECK)
 							{
 								field_array_check[(y + 1)*puyostack.GetColumn() + x] = CHECKING;
@@ -391,8 +415,10 @@ public:
 							}
 						}
 
+						//最上縁ではない場合
 						if (y > 0)
 						{
+							//ぷよが直上と同じかつ直上がまだ未確認だった場合
 							if (puyostack.GetValue(y - 1, x) == puyostack.GetValue(y, x) && field_array_check[(y - 1)*puyostack.GetColumn() + x] == NOCHECK)
 							{
 								field_array_check[(y - 1)*puyostack.GetColumn() + x] = CHECKING;
@@ -406,6 +432,7 @@ public:
 			}
 		}
 
+		//CHECKEDになったマス数をカウント
 		int puyocount = 0;
 		for (int i = 0; i < puyostack.GetLine()*puyostack.GetColumn(); i++)
 		{
@@ -416,6 +443,7 @@ public:
 		}
 
 		int vanishednumber = 0;
+		//CHECKEDになったマスが4以上の場合は削除を実行
 		if (4 <= puyocount)
 		{
 			for (int y = 0; y < puyostack.GetLine(); y++)
@@ -434,8 +462,62 @@ public:
 
 		delete[] field_array_check;
 
+		//削除したぷよの数を返り値として返す
 		return vanishednumber;
 	}
+
+	//stack上の落下できるぷよを全て落下させる
+	void StackMoveDown(PuyoArrayStack &stack)
+	{
+		//一時的格納場所メモリ確保
+		puyocolor *stack_temp = new puyocolor[stack.GetLine()*stack.GetColumn()];
+
+		for (int i = 0; i < stack.GetLine()*stack.GetColumn(); i++)
+		{
+			stack_temp[i] = NONE;
+		}
+
+		//1つ下の位置にぷよをずらす
+		for (int y = stack.GetLine() - 1; y >= 0; y--)
+		{
+			for (int x = 0; x < stack.GetColumn(); x++)
+			{
+				if (stack.GetValue(y, x) == NONE) {
+					continue;
+				}
+				//最下縁ではなく下に何も存在しない場合の処理
+				if (y < stack.GetLine() - 1 && stack.GetValue(y + 1, x) == NONE && stack.GetValue(y + 1, x) == NONE)
+				{
+					stack_temp[(y + 1)*stack.GetColumn() + x] = stack.GetValue(y, x);
+					//コピー後に元位置のpuyoactiveのデータは消す
+					stack.SetValue(y, x, NONE);
+				}
+				else
+				{
+					//上記の場合に当てはまらない場合に値を引き継ぐ処理
+					stack_temp[y*stack.GetColumn() + x] = stack.GetValue(y, x);
+				}
+			}
+		}
+
+		//stack_tempからstackへコピー
+		for (int y = 0; y < stack.GetLine(); y++)
+		{
+			for (int x = 0; x < stack.GetColumn(); x++)
+			{
+				stack.SetValue(y, x, stack_temp[y*stack.GetColumn() + x]);
+			}
+		}
+
+		//一時的格納場所メモリ解放
+		delete[] stack_temp;
+	}
+
+	// void RotateRight(PuyoArrayActive &puyo, PuyoArrayStack &stack)
+	// {
+	//
+	// }
+
 };
 
 //puyoとstackのぷよの情報を統合するための関数
@@ -547,7 +629,7 @@ int main(int argc, char **argv){
 	control.GeneratePuyo(puyo);	//最初のぷよ生成
 
 	int delay = 0;
-	int waitCount = 20000;
+	int waitCount = 10000;
 
 	int puyostate = 0;
 
@@ -576,6 +658,13 @@ int main(int argc, char **argv){
 			break;
 		case 'z':
 			//ぷよ回転処理
+
+			break;
+		case KEY_DOWN:
+			//下ボタンを押すと下まで一瞬で落下する
+			for (int i=0; i<puyo.GetLine()-1; i++){
+				control.MoveDown(puyo, stack);
+			}
 			break;
 		default:
 			break;
@@ -590,8 +679,20 @@ int main(int argc, char **argv){
 			//ぷよ着地判定
 			if (control.LandingPuyo(puyo, stack))
 			{
-				//着地したらぷよが4つ以上連結していないかチェックする
-				control.VanishPuyo(stack);
+				//連鎖が止まるまで落下・削除を実行
+				while(1){
+					for (int i=0; i<stack.GetLine()-1; i++)
+					{
+						//着地したらまず落ちうるぷよを落下させる
+						control.StackMoveDown(stack);
+					}
+					//着地したらぷよが4つ以上連結していないかチェックする
+					//ぷよに変化がなければぷよ生成に進む
+					int vanishednumber = control.VanishPuyo(stack);
+					if (vanishednumber == 0){
+						break;
+					}
+				}
 				//着地していたら新しいぷよ生成
 				control.GeneratePuyo(puyo);
 			}
