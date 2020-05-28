@@ -22,6 +22,7 @@ GameOver画面を追加（ゲームのメイン部分をGameStartに集約／Gam
 PuyoArrayのデストラクタによるReleaseは普通は関数内で終わるはずだが，
 main関数終了まで生きていると仮定したら，派生クラスでReleaseをしてあげたほうがいい
 でも，ChangeSizeでもReleaseするのでどうなんだろうか
+PuyoArrayクラスにInitPuyoArrayメンバ関数を追加して盤面生成後クリアになるように初期化
 【To Do】
 - [x] 着地判定後落下できるぷよを落下させて連結ぷよ削除
 - [x] 下ボタンで瞬時に落下
@@ -30,6 +31,9 @@ main関数終了まで生きていると仮定したら，派生クラスでRele
 - [x] ゲームオーバー機能をつける
 - [x] スコアをつける
 - [x] 初期設定画面を表示
+- [] コメントアウト
+- [] usleepの調整
+- [] 盤面が小さい時に着地判定がバグる問題
 - [] 次のぷよを表示
 - [] 音楽・BGMをつける//環境的に困難か
 */
@@ -37,6 +41,7 @@ main関数終了まで生きていると仮定したら，派生クラスでRele
 #include <curses.h>
 #include <stdlib.h> //rand, srand関数で使用
 #include <time.h> //srand関数で使用
+#include <unistd.h>
 
 //ぷよの色を表すの列挙型
 //NONEが無し，RED,BLUE,..が色を表す
@@ -104,6 +109,17 @@ public:
 		}
 
 		data[y*GetColumn() + x] = value;
+	}
+
+	void InitPuyoArray()
+	{
+		for (int y = 0; y < GetLine(); y++)
+		{
+			for (int x = 0; x < GetColumn(); x++)
+			{
+				SetValue(y, x, NONE);
+			}
+		}
 	}
 
 protected:
@@ -853,12 +869,26 @@ void GameStart(int height, int width, int speed)
 	//初期化処理
 	puyoactive.ChangeSize(height, width);
 	puyostack.ChangeSize(height, width);
+	puyoactive.InitPuyoArray();
+	puyostack.InitPuyoArray();
 	control.GeneratePuyo(puyoactive);	//最初のぷよ生成
 
 	int delay = 0;
 	int waitCount = speed;
 
 	int score = 0;
+
+	puyostack.SetValue(5, 3, BLUE);
+	puyostack.SetValue(6, 3, YELLOW);
+	puyostack.SetValue(7, 3, YELLOW);
+	puyostack.SetValue(8, 3, YELLOW);
+	puyostack.SetValue(5, 4, YELLOW);
+	puyostack.SetValue(6, 4, BLUE);
+	puyostack.SetValue(7, 4, BLUE);
+	puyostack.SetValue(8, 4, BLUE);
+	puyostack.SetValue(6, 5, YELLOW);
+	puyostack.SetValue(7, 5, YELLOW);
+	puyostack.SetValue(8, 5, YELLOW);
 
 	//メイン処理ループ
 	while (1)
@@ -909,6 +939,9 @@ void GameStart(int height, int width, int speed)
 			//ぷよ着地判定
 			if (control.LandingPuyo(puyoactive, puyostack))
 			{
+				//着地間のあるsleepを入れる
+				Display(puyoactive, puyostack, score);
+				usleep(200000);
 				//連鎖が止まるまで落下・削除を実行
 				while(1){
 					for (int i=0; i<puyostack.GetLine()-1; i++)
@@ -916,12 +949,17 @@ void GameStart(int height, int width, int speed)
 						//着地したらまず落ち得るぷよを落下させる
 						control.StackMoveDown(puyostack);
 					}
+					Display(puyoactive, puyostack, score);
+					usleep(200000);
 					//着地したらぷよが4つ以上連結していないかチェックする
 					//ぷよに変化がなければぷよ生成に進む
 					int vanishednumber = control.VanishPuyo(puyostack);
 					score += vanishednumber * 10;
+					Display(puyoactive, puyostack, score);
 					if (vanishednumber == 0){
 						break;
+					} else {
+						usleep(200000);
 					}
 				}
 				//そのターンの処理がすべて終わった時点で詰んでないか確認
