@@ -3,6 +3,8 @@
 
 /*
 【メモ】
+連結ぷよを削除した後ぷよが再度落下するように変更
+再度落下したぷよも連結判定されるように変更
 添付されたコードを用いてRotateメンバ関数とpuyorotateメンバ変数を
 追加して回転させることができるように変更した
 stackを無視して回転するので修正
@@ -12,15 +14,24 @@ puyorotateのアクセスをメンバ関数経由にして機密性を高めた
 時計回り（'z'）と反時計回り（'x'）のコマンド操作を追加
 puyoactiveとpuyostackのインスタンス名及びそれらの仮引数名をpuyoactiveとpuyostackに統一
 謎のmain関数内の変数puyostate = 0 を削除（心配）
+GameOver画面を追加（ゲームのメイン部分をGameStartに集約／GameOver画面で終了・リスタートを選択できる）
+スコアカウント及びスコア表示を追加（消したぷよの数x10）
+ゲーム開始時に盤面の高さと幅，ぷよの落下速度を選択できるようにした
+[prob]再スタートするとメモリがうまく解放できていないのかぷよが残っている
+[prob]高さ幅共に12以下になると着地判定にバグが発生する
+PuyoArrayのデストラクタによるReleaseは普通は関数内で終わるはずだが，
+main関数終了まで生きていると仮定したら，派生クラスでReleaseをしてあげたほうがいい
+でも，ChangeSizeでもReleaseするのでどうなんだろうか
 【To Do】
 - [x] 着地判定後落下できるぷよを落下させて連結ぷよ削除
 - [x] 下ボタンで瞬時に落下
 - [x] 回転をつける
 - [x] 名前変更: puyo, stack -> puyoactive, puyostack
-- [] ゲームオーバー機能をつける
-- [] スコアをつける
+- [x] ゲームオーバー機能をつける
+- [x] スコアをつける
+- [x] 初期設定画面を表示
 - [] 次のぷよを表示
-- [] 音楽・BGMをつける
+- [] 音楽・BGMをつける//環境的に困難か
 */
 
 #include <curses.h>
@@ -95,7 +106,7 @@ public:
 		data[y*GetColumn() + x] = value;
 	}
 
-private:
+protected:
 	//盤面状態
 	puyocolor *data;
 	unsigned int data_line;
@@ -358,7 +369,6 @@ public:
 				vanishednumber += VanishPuyo(puyostack, y, x);
 			}
 		}
-
 		//トータルの削除したぷよ数を返す
 		return vanishednumber;
 	}
@@ -733,7 +743,7 @@ puyocolor Merge(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack, int y, i
 }
 
 //表示
-void Display(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack)
+void Display(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack, int score)
 {
 	//落下中ぷよ表示
 	for (int y = 0; y < puyoactive.GetLine(); y++)
@@ -787,56 +797,68 @@ void Display(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack)
 		}
 	}
 
-	char msg[256];
-	sprintf(msg, "Field: %d x %d, Puyo number: %03d", puyoactive.GetLine(), puyoactive.GetColumn(), count);
-	mvaddstr(2, COLS - 35, msg);
+	char state_msg[256];
+	sprintf(state_msg, "Field: %d x %d, Puyo number: %03d", puyoactive.GetLine(), puyoactive.GetColumn(), count);
+	mvaddstr(2, COLS - 35, state_msg);
+	char score_msg[256];
+	sprintf(score_msg, "Score: %05d", score);
+	mvaddstr(3, COLS - 35, score_msg);
 
 	refresh();
 }
 
-void GameOver(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack)
+bool GameOverJudge(PuyoArrayStack &puyostack)
 {
-
+	if ((puyostack.GetValue(0, 5) != NONE) || (puyostack.GetValue(0, 6) != NONE))
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
 }
 
+int GameOver()
+{
+	//画面に"GameOver"を表示する
+	mvprintw(5, COLS - 35, "===============");
+	mvprintw(6, COLS - 35, "#  GAME OVER  #");
+	mvprintw(7, COLS - 35, "===============");
+	mvprintw(9, COLS - 35, "Press 'r' To Continue");
+	mvprintw(10, COLS - 35, "Press 'q' To Quit");
+	while (1)
+	{
+		int ch = getch();
+		if (ch == 'q')
+		{
+			erase();
+			return 0;
+		}
+		else if (ch == 'r')
+		{
+			erase();
+			return 1;
+		}
+	}
+}
 
-//ここから実行される
-int main(int argc, char **argv){
-	//画面の初期化
-	initscr();
-	//カラー属性を扱うための初期化
-	start_color();
-
-	//キーを押しても画面に表示しない
-	noecho();
-	//キー入力を即座に受け付ける
-	cbreak();
-
-	curs_set(0);
-	//キー入力受付方法指定
-	keypad(stdscr, TRUE);
-
-	//キー入力非ブロッキングモード
-	timeout(0);
-
-	//出力の際に使用する色を定義
-	init_pair(0, COLOR_WHITE, COLOR_BLACK);
-	init_pair(1, COLOR_RED, COLOR_BLACK);
-	init_pair(2, COLOR_BLUE, COLOR_BLACK);
-	init_pair(3, COLOR_GREEN, COLOR_BLACK);
-	init_pair(4, COLOR_YELLOW, COLOR_BLACK);
-
+void GameStart(int height, int width, int speed)
+{
+	//盤面と操作のインスタンスを作成
 	PuyoArrayActive puyoactive;
 	PuyoArrayStack puyostack;
 	PuyoControl control;
 
 	//初期化処理
-	puyoactive.ChangeSize(LINES/2, COLS/2);	//フィールドは画面サイズの縦横1/2にする
-	puyostack.ChangeSize(LINES/2, COLS/2);
+	puyoactive.ChangeSize(height, width);
+	puyostack.ChangeSize(height, width);
 	control.GeneratePuyo(puyoactive);	//最初のぷよ生成
 
 	int delay = 0;
-	int waitCount = 10000;
+	int waitCount = speed;
+
+	int score = 0;
 
 	//メイン処理ループ
 	while (1)
@@ -846,9 +868,9 @@ int main(int argc, char **argv){
 		ch = getch();
 
 		//Qの入力で終了
-		if (ch == 'Q')
+		if (ch == 'q')
 		{
-			break;
+			return;
 		}
 
 		//入力キーごとの処理
@@ -891,28 +913,170 @@ int main(int argc, char **argv){
 				while(1){
 					for (int i=0; i<puyostack.GetLine()-1; i++)
 					{
-						//着地したらまず落ちうるぷよを落下させる
+						//着地したらまず落ち得るぷよを落下させる
 						control.StackMoveDown(puyostack);
 					}
 					//着地したらぷよが4つ以上連結していないかチェックする
 					//ぷよに変化がなければぷよ生成に進む
 					int vanishednumber = control.VanishPuyo(puyostack);
+					score += vanishednumber * 10;
 					if (vanishednumber == 0){
 						break;
 					}
+				}
+				//そのターンの処理がすべて終わった時点で詰んでないか確認
+				if (GameOverJudge(puyostack) == true)
+				{
+					flash();
+					return;
 				}
 				//着地していたら新しいぷよ生成
 				control.GeneratePuyo(puyoactive);
 			}
 		}
 		delay++;
-
 		//表示
-		Display(puyoactive, puyostack);
+		Display(puyoactive, puyostack, score);
 	}
+}
 
+void GameSetting(int &height, int &width, int &speed)
+{
+	while (1)
+	{
+		//盤面の高さを設定
+		while(1){
+			int ch = getch();
+			switch (ch){
+				case KEY_RIGHT:
+				case KEY_UP:
+					if (height < 20){
+						height++;
+					}
+					break;
+				case KEY_LEFT:
+				case KEY_DOWN:
+					if (12 < height){
+						height--;
+					}
+					break;
+				case '\n':
+					break;
+			}
+			mvprintw(4, 20, "*** WELCOME TO PUYO-PUYO! ***");
+			mvprintw(5, 20, "=============================");
+			mvprintw(7, 20, "Field Height: %02d", height);
+			mvprintw(13, 20, "Adjust Parameters with Arrow Keys");
+			mvprintw(14, 20, "Press Enter to Confirm");
+			if (ch == '\n'){ break; }
+		}
+		//盤面の幅を設定
+		while(1){
+			int ch = getch();
+			switch (ch){
+				case KEY_RIGHT:
+				case KEY_UP:
+					if (width < 42){
+						width++;
+					}
+					break;
+				case KEY_LEFT:
+				case KEY_DOWN:
+					if (12 < width){
+						width--;
+					}
+					break;
+				case '\n':
+					break;
+			}
+			mvprintw(4, 20, "*** WELCOME TO PUYO-PUYO! ***");
+			mvprintw(5, 20, "=============================");
+			mvprintw(7, 20, "Field Height: %02d", height);
+			mvprintw(8, 20, "Field Width: %02d", width);
+			mvprintw(13, 20, "Adjust Parameters with Arrow Keys");
+			mvprintw(14, 20, "Press Enter to Confirm");
+			if (ch == '\n'){ break; }
+		}
+		//ぷよの落下スピードを設定
+		int speed_degree = 3;
+		while(1){
+			int ch = getch();
+			switch (ch){
+				case KEY_RIGHT:
+				case KEY_UP:
+					if (speed_degree < 5){
+						speed_degree++;
+					}
+					break;
+				case KEY_LEFT:
+				case KEY_DOWN:
+					if (1 < speed_degree){
+						speed_degree--;
+					}
+					break;
+				case '\n':
+					break;
+			}
+			switch (speed_degree){
+				case 1: speed = 60000; break;
+				case 2: speed = 40000; break;
+				case 3: speed = 20000; break;
+				case 4: speed = 10000; break;
+				case 5: speed = 7500; break;
+			}
+			mvprintw(4, 20, "*** WELCOME TO PUYO-PUYO! ***");
+			mvprintw(5, 20, "=============================");
+			mvprintw(7, 20, "Field Height: %02d", height);
+			mvprintw(8, 20, "Field Width: %02d", width);
+			mvprintw(9, 20, "Falling Speed: %d", speed_degree);
+			mvprintw(13, 20, "Adjust Parameters with Arrow Keys");
+			mvprintw(14, 20, "Press Enter to Confirm");
+			if (ch == '\n'){ break; }
+		}
+		erase();
+		break;
+	}
+}
+
+//ここから実行される
+int main(int argc, char **argv){
+	//画面の初期化
+	initscr();
+	//カラー属性を扱うための初期化
+	start_color();
+	//キーを押しても画面に表示しない
+	noecho();
+	//キー入力を即座に受け付ける
+	cbreak();
+	//カーソルを非表示にする
+	curs_set(0);
+	//キー入力受付方法指定
+	keypad(stdscr, TRUE);
+
+	//キー入力非ブロッキングモード
+	timeout(0);
+
+	//出力の際に使用する色を定義
+	init_pair(0, COLOR_WHITE, COLOR_BLACK);
+	init_pair(1, COLOR_RED, COLOR_BLACK);
+	init_pair(2, COLOR_BLUE, COLOR_BLACK);
+	init_pair(3, COLOR_GREEN, COLOR_BLACK);
+	init_pair(4, COLOR_YELLOW, COLOR_BLACK);
+
+	int nextaction;
+	while(1){
+		int height = 12, width = 12, speed = 20000;
+		GameSetting(height, width, speed);
+		GameStart(height, width, speed);
+		//'q'を押すまたは詰みの時GameOver画面に移動
+		nextaction = GameOver();
+		if ( nextaction == 0 ){
+			break;
+		} else {
+			continue;
+		}
+	}
 	//画面をリセット
 	endwin();
-
 	return 0;
 }
