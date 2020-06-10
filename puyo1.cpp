@@ -22,7 +22,7 @@ DisplayPuyoの表示するx座標に15足して盤面全体を右に15ずらす
 shell経由で音が鳴るようにした
 ぷよ着地時/消した時/回転時/設定時/設定決定/BGM/ゲームオーバーの時に音を慣らすようにする
 開発用に完成させた
-
+提出用に完成させた
 【Issue】
 - [x] 次のぷよを表示
 - [x] スコア計算の再設計
@@ -39,7 +39,7 @@ shell経由で音が鳴るようにした
 - [x] 音楽・BGMをつける
 - [x] const指定（関数は難しくなりそうなので保留）
 - [x] 説明書き
-- [] 提出時にモデルスコアとセーブの新規生成とぷよの生成を解除
+- [x] 提出時にモデルスコアとセーブの新規生成とぷよの生成を解除
 - [-] 消える時に点滅
 - [-] テトリスつくる（enumメンバを状態を保持した構造体で）
 - [-] ぷよが縦の状態で横に移動すると片方が移動できない時に分離してしまう
@@ -232,8 +232,8 @@ public:
 	void GeneratePuyo(PuyoArrayActive &puyoactive)
 	{
 		//新しいぷよを生成
-		puyoactive.SetValue(0, 5, YELLOW);
-		puyoactive.SetValue(1, 5, YELLOW);
+		puyoactive.SetValue(0, 5, standbypuyo.standbypuyo1_1);
+		puyoactive.SetValue(1, 5, standbypuyo.standbypuyo1_2);
 		//次の次に生成されるぷよを次に生成されるぷよに変更
 		standbypuyo.standbypuyo1_1 = standbypuyo.standbypuyo2_1;
 		standbypuyo.standbypuyo1_2 = standbypuyo.standbypuyo2_2;
@@ -927,11 +927,11 @@ public:
 		// プログラム実行時に保存ファイルsave.datがなければ生成
 		FILE *fp = fopen("save.dat", "rb");
 		//点検のため毎起動ごとに起動したい場合は条件に" || true"を追加
-		if (fp == NULL || true){
+		if (fp == NULL){
 			RECORDS records = {
-				{"Donald Trump", 30},
-				{"Kim Jong Eun", 20},
-				{"Shinzo Abe", 10}
+				{"Donald Trump", 70000},
+				{"Kim Jong Eun", 40000},
+				{"Shinzo Abe", 20000}
 			};
 			fp = fopen("save.dat", "wb");
 			fwrite(&records, sizeof(RECORDS), 1, fp);
@@ -1364,6 +1364,7 @@ public:
 		int score = 0;
 
 		// 落ちコンテスト用ぷよ
+		/*
 		puyostack.SetValue(5, 3, BLUE);
 		puyostack.SetValue(6, 3, YELLOW);
 		puyostack.SetValue(7, 3, YELLOW);
@@ -1375,6 +1376,7 @@ public:
 		puyostack.SetValue(6, 5, YELLOW);
 		puyostack.SetValue(7, 5, YELLOW);
 		puyostack.SetValue(8, 5, YELLOW);
+		*/
 
 		//bgmを再生
 		system("mpg123 -Z sound/bgm.mp3 >/dev/null 2>&1 &");
