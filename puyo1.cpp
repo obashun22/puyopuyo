@@ -1,36 +1,32 @@
 //課題
-//2020/05/29
+//2020/06/05
 
 /*
 【メモ】
-InitPuyoArrayメンバ関数をChangeSize関数内で呼び出してメモリ確保の際に初期化するよう変更
-回転した時のみpuyorotateを変更するようにした
-セーブ機能を実装してGameOverになった時点のスコアを過去上位3位まで記録
-SaveDataクラスの構成はコンストラクタでsave.dat生成, Saveはスコアを比較して入れ替える
-PrintCommentは順位に応じてコメントするPrintSaveDataはランキングを表示
-データは外部のsave.datにバイナリデータで保存
-GameStartをGameMainに名前変更
-main内のwhileがごちゃごちゃしてきたのでGameControlクラスを作成
-ゲームの進行に必要な関数をまとめていて必要があればSaveDataクラスを参照
-よって盤面情報・セーブ機能・ゲームコントロールの3つのクラスで動いている
-コメントアウトを更新
-Press 'q' to Quitを常時表示するように変更
-盤面の大きさの下限を7x7に変更
-盤面が小さい時に着地判定がバグる問題は7x7を下限にすることで一応対応
-Press 'p'でポーズ・ポーズ解除を追加
-standbypuyo構造体で次と次の次に出現するぷよを管理するよう変更
+ぷよの表示を'@'にする
+次と次の次のぷよが表示されるようにした
+ぷよの生成を縦にするようにしてそれに伴いGameOver判定も縦に変更回転の初期値も変更
+ぷよ出現マスを'x'に変更
+相場が1000万ptなので%d08に変更
+連鎖・連結・色数ボーナスを加味
 
-【To Do】
-- [x] セーブする機能
-- [x] 独立性の確認
-- [x] コメントアウト
-- [x] Press 'q' to Quit表示
-- [x] 盤面が小さい時に着地判定がバグる問題
-- [x] ポーズ機能
-- [x] usleepの調整
-- [] 次のぷよを表示
+【Issue】
+- [x] 次のぷよを表示
+- [x] スコア計算の再設計
+- [x] 次のぷよが表示できるように盤面サイズ上限を設定
+- [] 設定画面の設定内容難易度別として見直し
+- [] 再利用性の確認
 - [] 名前を記録する
-- [] 音楽・BGMをつける//環境的に困難か
+- [] const指定
+- [] 音楽・BGMをつける
+- [] テトリスつくる（enumメンバを状態を保持した構造体で）
+- [] 枠つける
+- [] ↓で落下速度変更に変更
+- [] １マス落下でscore++
+- [] 消える時に点滅
+- [] 提出時にモデルスコアとセーブの新規生成を解除
+- [] 全消しボーナス
+- [] 背景色変更
 */
 
 #include <curses.h>
@@ -42,6 +38,10 @@ standbypuyo構造体で次と次の次に出現するぷよを管理するよう
 //ぷよの色を表すの列挙型
 //NONEが無し，RED,BLUE,..が色を表す
 enum puyocolor { NONE, RED, BLUE, GREEN, YELLOW };
+
+int comboBonus[20] = {0, 8, 16, 32, 64, 96, 128, 160, 1192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 480, 512};
+int vanishedNumberBonus[12] = {0, 0, 0, 0, 0, 2, 3, 4, 5, 6, 7, 10};
+int colorBonus[6] = {0, 0, 3, 6, 2, 4};
 
 //盤面状態の保持に関するクラス
 class PuyoArray
@@ -143,7 +143,7 @@ class PuyoArrayActive: public PuyoArray
 {
 public:
 	PuyoArrayActive(){
-		puyorotate = 0;
+		puyorotate = 1;
 	}
 
 	// ぷよの回転状態を返す
@@ -158,7 +158,7 @@ public:
 
 private:
 	// ぷよの回転状態を表す
-	// 初期状態0で右回転毎に1増える
+	// 初期状態1で右回転毎に1増える
 	int puyorotate;
 };
 
@@ -180,6 +180,8 @@ public:
 		randColor(standbypuyo.standbypuyo1_2);
 		randColor(standbypuyo.standbypuyo2_1);
 		randColor(standbypuyo.standbypuyo2_2);
+		bonus = 0;
+		for (int i = 0; i < 4; i++){ colorCount[i] = 0; }
 	}
 
 	//puyocolorのメンバをランダムに与える関数
@@ -206,7 +208,7 @@ public:
 	{
 		//puyocolorのメンバをランダムに与える
 		puyoactive.SetValue(0, 5, standbypuyo.standbypuyo1_1);
-		puyoactive.SetValue(0, 6, standbypuyo.standbypuyo1_2);
+		puyoactive.SetValue(1, 5, standbypuyo.standbypuyo1_2);
 		standbypuyo.standbypuyo1_1 = standbypuyo.standbypuyo2_1;
 		standbypuyo.standbypuyo1_2 = standbypuyo.standbypuyo2_2;
 		srand((unsigned int)time(NULL));
@@ -241,7 +243,7 @@ public:
 					}
 					//puyoactiveがカラになるからbreakしてもいいかも
 					//次のぷよのために回転状態を初期化する
-					puyoactive.SetPuyoRotate(0);
+					puyoactive.SetPuyoRotate(1);
 				}
 			}
 		}
@@ -390,22 +392,37 @@ public:
 	}
 
 	//各マスにおいてぷよの連結があるかを確認する関数
+	//ある盤面状態において消えたぷよの総数を返す（色数ボーナスの計算+連結bonusの計算）
 	int VanishPuyo(PuyoArrayStack &puyostack)
 	{
-		int vanishednumber = 0;
+		int totalvanishednumber = 0;
 		//すべてのマスにおいて4以上の連結ぷよの削除を実行
 		for (int y = 0; y < puyostack.GetLine(); y++)
 		{
 			for (int x = 0; x < puyostack.GetColumn(); x++)
 			{
-				vanishednumber += VanishPuyo(puyostack, y, x);
+				int vanishednumber = VanishPuyo(puyostack, y, x);
+				//【連結bonus】
+				// ある連結ぷよの消えた数に従ってbonusに加点
+				// ある盤面状態において連結bonusを蓄積加点
+				if (vanishednumber < 11){
+					bonus += vanishedNumberBonus[vanishednumber];
+				}	else {
+					bonus += vanishedNumberBonus[11];
+				}
+				totalvanishednumber += vanishednumber;
 			}
 		}
+		//【色数bonus】
+		int colorCountNum = 0;
+		for (int i = 0; i < 4; i++){ if ( colorCount[i] == 1 ){ colorCountNum++; } }
+		bonus += colorBonus[colorCountNum];
 		//トータルの削除したぷよ数を返す
-		return vanishednumber;
+		return totalvanishednumber;
 	}
 
 	//あるマスにおいて4つ以上のぷよの連結があるかを確認してあれば削除する関数
+	//あるマスに注目したときに連結しているぷよ数を返す
 	int VanishPuyo(PuyoArrayStack &puyostack, unsigned int y, unsigned int x)
 	{
 		//空のマスは飛ばす
@@ -413,8 +430,8 @@ public:
 		{
 			return 0;
 		}
-		//以降ぷよが存在する場合のみの実行となる
 
+		//以降ぷよが存在する場合のみの実行となる
 		enum checkstate{ NOCHECK, CHECKING, CHECKED };
 
 		//指定されたマスごとにチェック専用のメモリを確保する
@@ -429,7 +446,6 @@ public:
 
 		//指定されたマスをCHECKINGに変更
 		field_array_check[y*puyostack.GetColumn() + x] = CHECKING;
-
 
 		bool checkagain = true;
 		while (checkagain)
@@ -519,6 +535,23 @@ public:
 						vanishednumber++;
 					}
 				}
+			}
+			//ぷよが削除された時のぷよの色を記録する
+			switch (puyostack.GetValue(y, x)){
+				case RED:
+					colorCount[0] = 1;
+					break;
+				case BLUE:
+					colorCount[1] = 1;
+					break;
+				case GREEN:
+					colorCount[2] = 1;
+					break;
+				case YELLOW:
+					colorCount[3] = 1;
+					break;
+				default:
+					break;
 			}
 		}
 
@@ -770,9 +803,41 @@ public:
 		}
 	}
 
+	//次と次の次に生成されるぷよ（standbypuyo構造体）にアクセスするための関数
+	puyocolor GetStandByPuyo(int set, int order)
+	{
+		switch (set){
+			case 1:
+				return order == 1 ? standbypuyo.standbypuyo1_1: standbypuyo.standbypuyo1_2;
+			case 2:
+				return order == 1 ? standbypuyo.standbypuyo2_1: standbypuyo.standbypuyo2_2;
+		}
+		return NONE;
+	}
+
+	int GetBonus()
+	{
+		return bonus == 0 ? 1: bonus;
+	}
+
+	void ResetBonus()
+	{
+		bonus = 0;
+		for (int i = 0; i < 4; i++){ colorCount[i] = 0; }
+	}
+
+	void AddComboBonus(int comboCount)
+	{
+		if (comboCount < 19){
+			bonus += comboBonus[comboCount - 1];
+		} else {
+			bonus += comboBonus[19];
+		}
+	}
+
 private:
 	// 次と次の次に来るぷよのデータを格納する構造体
-	// standbypuyoX_Y = 待ち順Xで出現するぷよのうち左からY番目のぷよ情報
+	// standbypuyoX_Y = 待ち順Xで出現するぷよのうち上からY番目のぷよ情報
 	typedef struct standbypuyo{
 		puyocolor standbypuyo1_1;
 		puyocolor standbypuyo1_2;
@@ -780,6 +845,11 @@ private:
 		puyocolor standbypuyo2_2;
 	} STANDBYPUYO;
 	STANDBYPUYO standbypuyo;
+
+	//スコア計算に使用するボーナスを保持する変数
+	int bonus;
+	//消したぷよの色の数をカウントするのに使用する配列
+	int colorCount[4];
 };
 
 // 個人の記録を格納する構造体
@@ -893,14 +963,14 @@ public:
 		FILE *fp = fopen("save.dat", "rb");
 		fread(&records, sizeof(records), 1, fp);
 		attrset(COLOR_PAIR(4));
-		mvprintw(y, x + 7, "## RANKING ##");
-		mvprintw(y + 1, x, "=============================");
+		mvprintw(y, x + 9, "## RANKING ##");
+		mvprintw(y + 1, x, "===============================");
 		mvprintw(y + 2, x, "No.1: %s", records.No_1.name);
-		mvprintw(y + 2, x + 21, "%05d pt", records.No_1.score);
+		mvprintw(y + 2, x + 20, "%08d pt", records.No_1.score);
 		mvprintw(y + 3, x, "No.2: %s", records.No_2.name);
-		mvprintw(y + 3, x + 21, "%05d pt", records.No_2.score);
+		mvprintw(y + 3, x + 20, "%08d pt", records.No_2.score);
 		mvprintw(y + 4, x, "No.3: %s", records.No_3.name);
-		mvprintw(y + 4, x + 21, "%05d pt", records.No_3.score);
+		mvprintw(y + 4, x + 20, "%08d pt", records.No_3.score);
 		attrset(COLOR_PAIR(0));
 		fclose(fp);
 	}
@@ -916,47 +986,58 @@ puyocolor Merge(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack, int y, i
 	}
 }
 
+// 指定した座標に属性に従ってぷよを表示する
+void DisplayPuyo(int y, int x, puyocolor puyo)
+{
+	switch (puyo){
+		case NONE:
+			mvaddch(y, x, '.');
+			if ( y == 0 && x == 5 ){ mvaddch(y, x, 'x'); }
+			break;
+		case RED:
+			attrset(COLOR_PAIR(1));
+			//出力する文字色を変更
+			mvaddch(y, x, '@');
+			attrset(COLOR_PAIR(0));
+			//出力する文字色を元に戻す
+			break;
+		case BLUE:
+			attrset(COLOR_PAIR(2));
+			mvaddch(y, x, '@');
+			attrset(COLOR_PAIR(0));
+			break;
+		case GREEN:
+			attrset(COLOR_PAIR(3));
+			mvaddch(y, x, '@');
+			attrset(COLOR_PAIR(0));
+			break;
+		case YELLOW:
+			attrset(COLOR_PAIR(4));
+			mvaddch(y, x, '@');
+			attrset(COLOR_PAIR(0));
+			break;
+		default:
+			mvaddch(y, x, '?');
+			break;
+	}
+}
+
 // 画面表示
-void Display(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack, int score)
+void Display(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack, PuyoControl &control, int score)
 {
 	//落下中ぷよ表示
 	for (int y = 0; y < puyoactive.GetLine(); y++)
 	{
 		for (int x = 0; x < puyoactive.GetColumn(); x++)
 		{
-			switch (Merge(puyoactive, puyostack, y, x))
-			{
-			case NONE:
-				mvaddch(y, x, '.');
-				break;
-			case RED:
-				attrset(COLOR_PAIR(1));
-				//出力する文字色を変更
-				mvaddch(y, x, 'R');
-				attrset(COLOR_PAIR(0));
-				//出力する文字色を元に戻す
-				break;
-			case BLUE:
-				attrset(COLOR_PAIR(2));
-				mvaddch(y, x, 'B');
-				attrset(COLOR_PAIR(0));
-				break;
-			case GREEN:
-				attrset(COLOR_PAIR(3));
-				mvaddch(y, x, 'G');
-				attrset(COLOR_PAIR(0));
-				break;
-			case YELLOW:
-				attrset(COLOR_PAIR(4));
-				mvaddch(y, x, 'Y');
-				attrset(COLOR_PAIR(0));
-				break;
-			default:
-				mvaddch(y, x, '?');
-				break;
-			}
+			DisplayPuyo(y, x, Merge(puyoactive, puyostack, y, x));
 		}
 	}
+
+	DisplayPuyo(1, puyoactive.GetColumn() + 2, control.GetStandByPuyo(1, 1));
+	DisplayPuyo(2, puyoactive.GetColumn() + 2, control.GetStandByPuyo(1, 2));
+	DisplayPuyo(4, puyoactive.GetColumn() + 2, control.GetStandByPuyo(2, 1));
+	DisplayPuyo(5, puyoactive.GetColumn() + 2, control.GetStandByPuyo(2, 2));
 
 	//情報表示
 	int count = 0;
@@ -972,10 +1053,10 @@ void Display(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack, int score)
 	}
 
 	char state_msg[256];
-	sprintf(state_msg, "Field: %d x %d, Puyo number: %03d", puyoactive.GetLine(), puyoactive.GetColumn(), count);
+	sprintf(state_msg, "Field: %d x %d, Puyo number: %04d", puyoactive.GetLine(), puyoactive.GetColumn(), count);
 	mvaddstr(2, COLS - 35, state_msg);
 	char score_msg[256];
-	sprintf(score_msg, "Score: %05d pt", score);
+	sprintf(score_msg, "Score: %08d pt", score);
 	mvaddstr(3, COLS - 35, score_msg);
 
 	mvprintw(5, COLS - 35, "Press 'q' to Quit");
@@ -1222,8 +1303,9 @@ public:
 					if (control.LandingPuyo(puyoactive, puyostack))
 					{
 						//着地感のあるsleepを入れる
-						Display(puyoactive, puyostack, score);
+						Display(puyoactive, puyostack, control, score);
 						usleep(200000);
+						int comboCount = 1;
 						//連鎖が止まるまで落下・削除を実行
 						while(1){
 							for (int i=0; i<puyostack.GetLine()-1; i++)
@@ -1231,16 +1313,21 @@ public:
 								//着地したらまず落ち得るぷよを落下させる
 								control.StackMoveDown(puyostack);
 							}
-							Display(puyoactive, puyostack, score);
+							Display(puyoactive, puyostack, control, score);
 							usleep(200000);
 							//着地したらぷよが4つ以上連結していないかチェックする
 							//ぷよに変化がなければぷよ生成に進む
-							int vanishednumber = control.VanishPuyo(puyostack);
-							score += vanishednumber * 10;
-							Display(puyoactive, puyostack, score);
-							if (vanishednumber == 0){
+							//【連鎖bonus】
+							//連鎖ボーナスの計算
+							int totalvanishednumber = control.VanishPuyo(puyostack);
+							control.AddComboBonus(comboCount);
+							score += totalvanishednumber * control.GetBonus() * 10;
+							control.ResetBonus();
+							Display(puyoactive, puyostack, control, score);
+							if (totalvanishednumber == 0){
 								break;
 							} else {
+								comboCount++;
 								usleep(200000);
 							}
 						}
@@ -1257,7 +1344,7 @@ public:
 				}
 				delay++;
 				//表示
-				Display(puyoactive, puyostack, score);
+				Display(puyoactive, puyostack, control, score);
 			}
 			mvprintw(6, COLS - 35, "Press 'p' to Continue");
 			// ポーズ画面
@@ -1273,7 +1360,7 @@ public:
 	// ゲームオーバーしたかどうかを判定する
 	bool GameOverJudge(PuyoArrayStack &puyostack)
 	{
-		if ((puyostack.GetValue(0, 5) != NONE) || (puyostack.GetValue(0, 6) != NONE))
+		if ((puyostack.GetValue(0, 5) != NONE))
 		{
 			return true;
 		}
