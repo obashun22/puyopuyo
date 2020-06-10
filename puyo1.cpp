@@ -408,10 +408,10 @@ public:
 
 	//あるマスにおいて4つ以上のぷよの連結があるかを確認してあれば削除する関数
 	//あるマスに注目したときに連結しているぷよ数を返す
-	int VanishPuyo(PuyoArrayStack &puyostack, const unsigned int y, const unsigned int x)
+	int VanishPuyo(PuyoArrayStack &puyostack, const unsigned int target_y, const unsigned int target_x)
 	{
 		//空のマスは飛ばす
-		if (puyostack.GetValue(y, x) == NONE)
+		if (puyostack.GetValue(target_y, target_x) == NONE)
 		{
 			return 0;
 		}
@@ -430,7 +430,7 @@ public:
 		}
 
 		//指定されたマスをCHECKINGに変更
-		field_array_check[y*puyostack.GetColumn() + x] = CHECKING;
+		field_array_check[target_y*puyostack.GetColumn() + target_x] = CHECKING;
 
 		bool checkagain = true;
 		while (checkagain)
@@ -522,7 +522,7 @@ public:
 				}
 			}
 			//ぷよが削除された時のぷよの色を記録する
-			switch (puyostack.GetValue(y, x)){
+			switch (puyostack.GetValue(target_y, target_x)){
 				case RED:
 					colorCount[0] = 1;
 					break;
