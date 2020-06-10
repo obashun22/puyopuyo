@@ -9,14 +9,15 @@
 ぷよ出現マスを'x'に変更
 相場が1000万ptなので%d08に変更
 連鎖・連結・色数ボーナスを加味
-
+ぷよの速度を変更するシステムを破棄
+盤面サイズはSmall・Normal・Largeのうちから選択するように変更
 【Issue】
 - [x] 次のぷよを表示
 - [x] スコア計算の再設計
 - [x] 次のぷよが表示できるように盤面サイズ上限を設定
-- [] 設定画面の設定内容難易度別として見直し
+- [x] 設定画面の設定内容難易度別として見直し
 - [] 再利用性の確認
-- [] 名前を記録する
+- [] 名前を記録する（arg?）
 - [] const指定
 - [] 音楽・BGMをつける
 - [] テトリスつくる（enumメンバを状態を保持した構造体で）
@@ -27,6 +28,7 @@
 - [] 提出時にモデルスコアとセーブの新規生成を解除
 - [] 全消しボーナス
 - [] 背景色変更
+- [] レン数表示
 */
 
 #include <curses.h>
@@ -950,9 +952,11 @@ public:
 			case 2:
 				mvprintw(18, COLS - 35, "# Excellent!");
 				mvprintw(19, COLS - 35, "# You got No.2!");
+				break;
 			case 3:
 				mvprintw(18, COLS - 35, "# Cool!");
 				mvprintw(19, COLS - 35, "# You got No.3!");
+				break;
 		}
 	}
 
@@ -1075,7 +1079,7 @@ public:
 		nextaction = 0;
 		height = 12;
 		width = 12;
-		speed = 20000;
+		speed = 30000;
 		end_score = 0;
 	}
 
@@ -1111,8 +1115,55 @@ public:
 	void GameSetting(SaveData &save)
 	{
 		save.PrintRecord(4, COLS - 35);
+		mvprintw(4, 10, "*** WELCOME TO PUYO-PUYO! ***");
+		mvprintw(5, 10, "=============================");
+		attrset(COLOR_PAIR(5));
+		mvprintw(11, 10, "[<-] or [->] / [Enter]");
+		mvprintw(12, 10, "Select Field Size");
+		attrset(COLOR_PAIR(0));
+		int fieldSize = 1;
 		while (1)
 		{
+			//難易度を設定する
+			while(1){
+				int ch = getch();
+				switch (ch){
+					case KEY_RIGHT:
+					case KEY_UP:
+						if (fieldSize < 2){
+							fieldSize++;
+						} else {
+							flash();
+						}
+						break;
+					case KEY_LEFT:
+					case KEY_DOWN:
+						if (0 < fieldSize){
+							 fieldSize--;
+						} else {
+							flash();
+						}
+						break;
+				}
+				//fieldSizeに従って盤面サイズを変更
+				switch (fieldSize){
+					case 0:
+						mvprintw(7, 10, "Field Size: Small ");
+						height = 8; width = 8;
+						break;
+					case 1:
+						mvprintw(7, 10, "Field Size: Normal");
+						height = 12; width = 12;
+						break;
+					case 2:
+						mvprintw(7, 10, "Field Size: Large ");
+						height = 14; width = 14;
+						break;
+				}
+				if (ch == '\n'){ break; }
+			}
+			//盤面の大きさとぷよ落下速度は直接変更できないようにする
+			/*
 			//盤面の高さを設定
 			while(1){
 				int ch = getch();
@@ -1132,8 +1183,6 @@ public:
 						} else {
 							flash();
 						}
-						break;
-					case '\n':
 						break;
 				}
 				mvprintw(4, 10, "*** WELCOME TO PUYO-PUYO! ***");
@@ -1172,14 +1221,15 @@ public:
 				mvprintw(8, 10, "Field Width: %02d", width);
 				if (ch == '\n'){ break; }
 			}
-			//ぷよの落下スピードを設定
-			int speed_degree = 3;
+			//ぷよの落下スピードを設定／３段解（Slow/Normal/Fast）
+			//設定初期値はNormal
+			int speed_degree = 1;
 			while(1){
 				int ch = getch();
 				switch (ch){
 					case KEY_RIGHT:
 					case KEY_UP:
-						if (speed_degree < 5){
+						if (speed_degree < 2){
 							speed_degree++;
 						} else {
 							flash();
@@ -1187,7 +1237,7 @@ public:
 						break;
 					case KEY_LEFT:
 					case KEY_DOWN:
-						if (1 < speed_degree){
+						if (0 < speed_degree){
 							speed_degree--;
 						} else {
 							flash();
@@ -1196,18 +1246,16 @@ public:
 					case '\n':
 						break;
 				}
-				switch (speed_degree){
-					case 1: speed = 60000; break;
-					case 2: speed = 40000; break;
-					case 3: speed = 20000; break;
-					case 4: speed = 10000; break;
-					case 5: speed = 5000; break;
-				}
 				mvprintw(7, 10, "Field Height: %02d", height);
 				mvprintw(8, 10, "Field Width: %02d", width);
-				mvprintw(9, 10, "Falling Speed: %d", speed_degree);
+				switch (speed_degree){
+					case 0: speed = 50000; mvprintw(9, 10, "Falling Speed: Slow  "); break;
+					case 1: speed = 30000; mvprintw(9, 10, "Falling Speed: Normal"); break;
+					case 2: speed = 5000; mvprintw(9, 10, "Falling Speed: Fast  "); break;
+				}
 				if (ch == '\n'){ break; }
 			}
+			*/
 			erase();
 			break;
 		}
@@ -1303,31 +1351,40 @@ public:
 					if (control.LandingPuyo(puyoactive, puyostack))
 					{
 						//着地感のあるsleepを入れる
+						//着地判定された時点で少し待機
 						Display(puyoactive, puyostack, control, score);
 						usleep(200000);
+
 						int comboCount = 1;
 						//連鎖が止まるまで落下・削除を実行
 						while(1){
 							for (int i=0; i<puyostack.GetLine()-1; i++)
 							{
-								//着地したらまず落ち得るぷよを落下させる
+								//着地したらまず落下ぷよを落下させる
 								control.StackMoveDown(puyostack);
 							}
+
+							//着地感のあるsleepを入れる
+							//落下ぷよが全て落下した時点で少し待機
 							Display(puyoactive, puyostack, control, score);
 							usleep(200000);
+
 							//着地したらぷよが4つ以上連結していないかチェックする
-							//ぷよに変化がなければぷよ生成に進む
 							//【連鎖bonus】
-							//連鎖ボーナスの計算
 							int totalvanishednumber = control.VanishPuyo(puyostack);
 							control.AddComboBonus(comboCount);
 							score += totalvanishednumber * control.GetBonus() * 10;
 							control.ResetBonus();
+
+							//ぷよが消滅した後の盤面を表示
 							Display(puyoactive, puyostack, control, score);
+							//ぷよに変化がなければぷよ生成に進む
 							if (totalvanishednumber == 0){
 								break;
 							} else {
 								comboCount++;
+								//ぷよが消滅して空きマスがある感じをだすためにsleepを入れる
+								//ぷよが消滅した時点で少し待機
 								usleep(200000);
 							}
 						}
