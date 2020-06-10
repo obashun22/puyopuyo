@@ -11,24 +11,38 @@
 連鎖・連結・色数ボーナスを加味
 ぷよの速度を変更するシステムを破棄
 盤面サイズはSmall・Normal・Largeのうちから選択するように変更
+DisplayPuyoの表示するx座標に15足して盤面全体を右に15ずらす
+ずれた分に対応して枠をつける
+設定画面のサイズ選択の文字を点滅するようにした
+↓キーで落下速度上昇するように変更
+1マス落下でスコアに一点加点するように変更
+./puyo1 プレイヤー名 で記録に名前が残せるようにした
+連鎖数＝コンボ数を表示するようにした
+全消しボーナス（3600pt）を追加して全消ししたらPERFECTを表示
+shell経由で音が鳴るようにした
+ぷよ着地時/消した時/回転時/設定時/設定決定/BGM/ゲームオーバーの時に音を慣らすようにする
+開発用に完成させた
+
 【Issue】
 - [x] 次のぷよを表示
 - [x] スコア計算の再設計
 - [x] 次のぷよが表示できるように盤面サイズ上限を設定
 - [x] 設定画面の設定内容難易度別として見直し
-- [] 再利用性の確認
-- [] 名前を記録する（arg?）
-- [] const指定
-- [] 音楽・BGMをつける
-- [] テトリスつくる（enumメンバを状態を保持した構造体で）
-- [] 枠つける
-- [] ↓で落下速度変更に変更
-- [] １マス落下でscore++
-- [] 消える時に点滅
-- [] 提出時にモデルスコアとセーブの新規生成を解除
-- [] 全消しボーナス
-- [] 背景色変更
-- [] レン数表示
+- [x] 枠つける
+- [x] ↓で落下速度変更に変更
+- [x] １マス落下でscore++
+- [x] 名前を記録する（arg?）
+- [x] レン数表示
+- [x] 背景色変更
+- [x] 全消しボーナス
+- [x] 再利用性の確認（意識はした）
+- [x] 音楽・BGMをつける
+- [x] const指定（関数は難しくなりそうなので保留）
+- [x] 説明書き
+- [] 提出時にモデルスコアとセーブの新規生成とぷよの生成を解除
+- [-] 消える時に点滅
+- [-] テトリスつくる（enumメンバを状態を保持した構造体で）
+- [-] ぷよが縦の状態で横に移動すると片方が移動できない時に分離してしまう
 */
 
 #include <curses.h>
@@ -41,9 +55,13 @@
 //NONEが無し，RED,BLUE,..が色を表す
 enum puyocolor { NONE, RED, BLUE, GREEN, YELLOW };
 
+//ボーナス加点の情報
 int comboBonus[20] = {0, 8, 16, 32, 64, 96, 128, 160, 1192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 480, 512};
 int vanishedNumberBonus[12] = {0, 0, 0, 0, 0, 2, 3, 4, 5, 6, 7, 10};
 int colorBonus[6] = {0, 0, 3, 6, 2, 4};
+
+//名前が入力されていないときでも記録するためのデフォルトの名前
+char default_name[] = "Unknown";
 
 //盤面状態の保持に関するクラス
 class PuyoArray
@@ -62,7 +80,7 @@ public:
 	}
 
 	//盤面サイズ変更
-	void ChangeSize(unsigned int line, unsigned int column)
+	void ChangeSize(const unsigned int line, const unsigned int column)
 	{
 		Release();
 
@@ -72,6 +90,7 @@ public:
 		data_line = line;
 		data_column = column;
 
+		//盤面をNONEで初期化
 		InitPuyoArray();
 	}
 
@@ -88,7 +107,7 @@ public:
 	}
 
 	//盤面の指定された位置の値を返す
-	puyocolor GetValue(unsigned int y, unsigned int x)
+	puyocolor GetValue(const unsigned int y, const unsigned int x)
 	{
 		if (y >= GetLine() || x >= GetColumn())
 		{
@@ -100,7 +119,7 @@ public:
 	}
 
 	//盤面の指定された位置に値を書き込む
-	void SetValue(unsigned int y, unsigned int x, puyocolor value)
+	void SetValue(const unsigned int y, const unsigned int x, const puyocolor value)
 	{
 		if (y >= GetLine() || x >= GetColumn())
 		{
@@ -145,6 +164,7 @@ class PuyoArrayActive: public PuyoArray
 {
 public:
 	PuyoArrayActive(){
+		//回転状態を初期化
 		puyorotate = 1;
 	}
 
@@ -154,7 +174,7 @@ public:
 	}
 
 	// ぷよの回転状態を変更する
-	void SetPuyoRotate(int state){
+	void SetPuyoRotate(const int state){
 		puyorotate = state;
 	}
 
@@ -176,13 +196,16 @@ class PuyoControl
 public:
 	PuyoControl()
 	{
-		srand((unsigned int)time(NULL));
 		//ランダムなぷよ生成のためにrootを初期化
+		srand((unsigned int)time(NULL));
+		//ゲーム開始時に待ちぷよのペアを二つ生成
 		randColor(standbypuyo.standbypuyo1_1);
 		randColor(standbypuyo.standbypuyo1_2);
 		randColor(standbypuyo.standbypuyo2_1);
 		randColor(standbypuyo.standbypuyo2_2);
+		//スコアのボーナスの値を初期化
 		bonus = 0;
+		//ある盤面状態で消したぷよの色数をカウントする配列を初期化
 		for (int i = 0; i < 4; i++){ colorCount[i] = 0; }
 	}
 
@@ -208,13 +231,15 @@ public:
 	//盤面に新しいぷよ生成
 	void GeneratePuyo(PuyoArrayActive &puyoactive)
 	{
-		//puyocolorのメンバをランダムに与える
-		puyoactive.SetValue(0, 5, standbypuyo.standbypuyo1_1);
-		puyoactive.SetValue(1, 5, standbypuyo.standbypuyo1_2);
+		//新しいぷよを生成
+		puyoactive.SetValue(0, 5, YELLOW);
+		puyoactive.SetValue(1, 5, YELLOW);
+		//次の次に生成されるぷよを次に生成されるぷよに変更
 		standbypuyo.standbypuyo1_1 = standbypuyo.standbypuyo2_1;
 		standbypuyo.standbypuyo1_2 = standbypuyo.standbypuyo2_2;
-		srand((unsigned int)time(NULL));
 		//ランダムなぷよ生成のためにrootを初期化
+		srand((unsigned int)time(NULL));
+		//次の次に生成されるぷよをランダムに生成
 		randColor(standbypuyo.standbypuyo2_1);
 		randColor(standbypuyo.standbypuyo2_2);
 	}
@@ -347,7 +372,7 @@ public:
 	}
 
 	//下移動
-	void MoveDown(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack)
+	void MoveDown(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack, int &score)
 	{
 		//一時的格納場所メモリ確保
 		puyocolor *puyo_temp = new puyocolor[puyoactive.GetLine()*puyoactive.GetColumn()];
@@ -357,6 +382,7 @@ public:
 			puyo_temp[i] = NONE;
 		}
 
+		bool moved = false;
 		//1つ下の位置にpuyoactiveからpuyo_tempへとコピー
 		for (int y = puyoactive.GetLine() - 1; y >= 0; y--)
 		{
@@ -371,6 +397,7 @@ public:
 					puyo_temp[(y + 1)*puyoactive.GetColumn() + x] = puyoactive.GetValue(y, x);
 					//コピー後に元位置のpuyoactiveのデータは消す
 					puyoactive.SetValue(y, x, NONE);
+					moved = true;
 				}
 				else
 				{
@@ -391,6 +418,8 @@ public:
 
 		//一時的格納場所メモリ解放
 		delete[] puyo_temp;
+
+		if (moved){ score++; }
 	}
 
 	//各マスにおいてぷよの連結があるかを確認する関数
@@ -405,17 +434,18 @@ public:
 			{
 				int vanishednumber = VanishPuyo(puyostack, y, x);
 				//【連結bonus】
-				// ある連結ぷよの消えた数に従ってbonusに加点
-				// ある盤面状態において連結bonusを蓄積加点
+				// 消えたぷよの連結数に従ってbonusに加点
 				if (vanishednumber < 11){
 					bonus += vanishedNumberBonus[vanishednumber];
 				}	else {
 					bonus += vanishedNumberBonus[11];
 				}
+				//ある盤面状態において消えたぷよの数の合計
 				totalvanishednumber += vanishednumber;
 			}
 		}
 		//【色数bonus】
+		//ある盤面状態において消えたぷよの色の数に従ってbonusに加点
 		int colorCountNum = 0;
 		for (int i = 0; i < 4; i++){ if ( colorCount[i] == 1 ){ colorCountNum++; } }
 		bonus += colorBonus[colorCountNum];
@@ -425,7 +455,7 @@ public:
 
 	//あるマスにおいて4つ以上のぷよの連結があるかを確認してあれば削除する関数
 	//あるマスに注目したときに連結しているぷよ数を返す
-	int VanishPuyo(PuyoArrayStack &puyostack, unsigned int y, unsigned int x)
+	int VanishPuyo(PuyoArrayStack &puyostack, const unsigned int y, const unsigned int x)
 	{
 		//空のマスは飛ばす
 		if (puyostack.GetValue(y, x) == NONE)
@@ -658,6 +688,8 @@ public:
 				puyoactive.SetValue(puyo1_y, puyo1_x, puyo1);
 				puyoactive.SetValue(puyo2_y + 1, puyo2_x - 1, puyo2);
 				puyoactive.SetPuyoRotate(1);
+				//回転時のサウンドを再生
+				system("mpg123 sound/rotate.mp3 >/dev/null 2>&1 &");
 			} else {
 					puyoactive.SetValue(puyo1_y, puyo1_x, puyo1);
 					puyoactive.SetValue(puyo2_y, puyo2_x, puyo2);
@@ -671,6 +703,8 @@ public:
 				puyoactive.SetValue(puyo1_y, puyo1_x, puyo1);
 				puyoactive.SetValue(puyo2_y - 1, puyo2_x - 1, puyo2);
 				puyoactive.SetPuyoRotate(2);
+				//回転時のサウンドを再生
+				system("mpg123 sound/rotate.mp3 >/dev/null 2>&1 &");
 			} else {
 					puyoactive.SetValue(puyo1_y, puyo1_x, puyo1);
 					puyoactive.SetValue(puyo2_y, puyo2_x, puyo2);
@@ -684,6 +718,8 @@ public:
 				puyoactive.SetValue(puyo2_y, puyo2_x, puyo2);
 				puyoactive.SetValue(puyo1_y - 1, puyo1_x + 1, puyo1);
 				puyoactive.SetPuyoRotate(3);
+				//回転時のサウンドを再生
+				system("mpg123 sound/rotate.mp3 >/dev/null 2>&1 &");
 			} else {
 					puyoactive.SetValue(puyo1_y, puyo1_x, puyo1);
 					puyoactive.SetValue(puyo2_y, puyo2_x, puyo2);
@@ -697,6 +733,8 @@ public:
 				puyoactive.SetValue(puyo2_y, puyo2_x, puyo2);
 				puyoactive.SetValue(puyo1_y + 1, puyo1_x + 1, puyo1);
 				puyoactive.SetPuyoRotate(0);
+				//回転時のサウンドを再生
+				system("mpg123 sound/rotate.mp3 >/dev/null 2>&1 &");
 			} else {
 					puyoactive.SetValue(puyo1_y, puyo1_x, puyo1);
 					puyoactive.SetValue(puyo2_y, puyo2_x, puyo2);
@@ -755,6 +793,8 @@ public:
 				puyoactive.SetValue(puyo1_y, puyo1_x, puyo1);
 				puyoactive.SetValue(puyo2_y - 1, puyo2_x - 1, puyo2);
 				puyoactive.SetPuyoRotate(3);
+				//回転時のサウンドを再生
+				system("mpg123 sound/rotate.mp3 >/dev/null 2>&1 &");
 			} else {
 					puyoactive.SetValue(puyo1_y, puyo1_x, puyo1);
 					puyoactive.SetValue(puyo2_y, puyo2_x, puyo2);
@@ -768,6 +808,8 @@ public:
 				puyoactive.SetValue(puyo1_y, puyo1_x, puyo1);
 				puyoactive.SetValue(puyo2_y - 1, puyo2_x + 1, puyo2);
 				puyoactive.SetPuyoRotate(0);
+				//回転時のサウンドを再生
+				system("mpg123 sound/rotate.mp3 >/dev/null 2>&1 &");
 			} else {
 					puyoactive.SetValue(puyo1_y, puyo1_x, puyo1);
 					puyoactive.SetValue(puyo2_y, puyo2_x, puyo2);
@@ -781,6 +823,8 @@ public:
 				puyoactive.SetValue(puyo2_y, puyo2_x, puyo2);
 				puyoactive.SetValue(puyo1_y + 1, puyo1_x + 1, puyo1);
 				puyoactive.SetPuyoRotate(1);
+				//回転時のサウンドを再生
+				system("mpg123 sound/rotate.mp3 >/dev/null 2>&1 &");
 			} else {
 					puyoactive.SetValue(puyo1_y, puyo1_x, puyo1);
 					puyoactive.SetValue(puyo2_y, puyo2_x, puyo2);
@@ -794,6 +838,8 @@ public:
 				puyoactive.SetValue(puyo2_y, puyo2_x, puyo2);
 				puyoactive.SetValue(puyo1_y + 1, puyo1_x - 1, puyo1);
 				puyoactive.SetPuyoRotate(2);
+				//回転時のサウンドを再生
+				system("mpg123 sound/rotate.mp3 >/dev/null 2>&1 &");
 			} else {
 					puyoactive.SetValue(puyo1_y, puyo1_x, puyo1);
 					puyoactive.SetValue(puyo2_y, puyo2_x, puyo2);
@@ -805,9 +851,11 @@ public:
 		}
 	}
 
-	//次と次の次に生成されるぷよ（standbypuyo構造体）にアクセスするための関数
-	puyocolor GetStandByPuyo(int set, int order)
+	//次と次の次に生成されるぷよの情報（standbypuyo構造体）にアクセスするための関数
+	puyocolor GetStandByPuyo(const int set, const int order)
 	{
+		//setはぷよが生成されるまでの待ち順
+		//orderはあるぷよの組みの中でどちらのぷよであるかを示す
 		switch (set){
 			case 1:
 				return order == 1 ? standbypuyo.standbypuyo1_1: standbypuyo.standbypuyo1_2;
@@ -817,18 +865,21 @@ public:
 		return NONE;
 	}
 
+	//bonusの値を返す
 	int GetBonus()
 	{
 		return bonus == 0 ? 1: bonus;
 	}
 
+	//ボーナス計算に関連したメンバ変数を初期化
 	void ResetBonus()
 	{
 		bonus = 0;
 		for (int i = 0; i < 4; i++){ colorCount[i] = 0; }
 	}
 
-	void AddComboBonus(int comboCount)
+	//コンボ数に従ってbonusに加点する
+	void AddComboBonus(const int comboCount)
 	{
 		if (comboCount < 19){
 			bonus += comboBonus[comboCount - 1];
@@ -848,7 +899,7 @@ private:
 	} STANDBYPUYO;
 	STANDBYPUYO standbypuyo;
 
-	//スコア計算に使用するボーナスを保持する変数
+	//スコア計算に使用するボーナスの値を保持する変数
 	int bonus;
 	//消したぷよの色の数をカウントするのに使用する配列
 	int colorCount[4];
@@ -871,7 +922,7 @@ typedef struct records {
 class SaveData
 {
 public:
-	SaveData()
+	SaveData(char *playername)
 	{
 		// プログラム実行時に保存ファイルsave.datがなければ生成
 		FILE *fp = fopen("save.dat", "rb");
@@ -886,10 +937,13 @@ public:
 			fwrite(&records, sizeof(RECORDS), 1, fp);
 			fclose(fp);
 		}
+		//プログラム実行時に渡された引数に従って名前を管理
+		if ( playername == NULL ){ playerName = default_name; }
+		else { playerName = playername; }
 	}
 
 	// ゲーム終了時のスコアがトップ3に入っている場合にお知らせ・セーブする関数
-	void Save(int end_score)
+	void Save( const int end_score )
 	{
 		// save.datがなければセーブしない
 		RECORDS records;
@@ -897,6 +951,7 @@ public:
 		if(fp == NULL){
 			return;
 		}
+		//recordsに情報をコピー
 		fread(&records, sizeof(records), 1, fp);
 		fclose(fp);
 
@@ -904,30 +959,33 @@ public:
 		// 1位よりもスコアが高い場合
 		if (records.No_1.score < end_score)
 		{
+			//順位を入れ替えて記録
 			strcpy(records.No_3.name, records.No_2.name);
 			records.No_3.score = records.No_2.score;
 			strcpy(records.No_2.name, records.No_1.name);
 			records.No_2.score = records.No_1.score;
-			char name[256] = "Unknown";
-			strcpy(records.No_1.name, name);
+			strcpy(records.No_1.name, playerName);
 			records.No_1.score = end_score;
+			//順位に従ったコメントを表示
 			PrintComment(1);
 		}
 		// 2位よりもスコアが高い場合
 		else if (records.No_2.score < end_score)
 		{
+			//順位を入れ替えて記録
 			records.No_3.score = records.No_2.score;
-			char name[256] = "Unknown";
-			strcpy(records.No_2.name, name);
+			strcpy(records.No_2.name, playerName);
 			records.No_2.score = end_score;
+			//順位に従ったコメントを表示
 			PrintComment(2);
 		}
 		// 3位よりもスコアが高い場合
 		else if (records.No_3.score < end_score)
 		{
-			char name[256] = "playerName";
-			strcpy(records.No_3.name, name);
+			//順位を入れ替えて記録
+			strcpy(records.No_3.name, playerName);
 			records.No_3.score = end_score;
+			//順位に従ったコメントを表示
 			PrintComment(3);
 		}
 		// 記録の更新を行う
@@ -937,12 +995,14 @@ public:
 		}
 		fwrite(&records, sizeof(records), 1, fp);
 		fclose(fp);
+		//更新した記録を表示する
 		PrintRecord(12, COLS - 35);
 	}
 
-// Top3ランキングに載った時にコメントを表示
-	void PrintComment(int order)
+	// Top3ランキングに載った時にコメントを表示
+	void PrintComment(const int order)
 	{
+		//orderは順位
 		switch (order)
 		{
 			case 1:
@@ -960,8 +1020,8 @@ public:
 		}
 	}
 
-// Top3の名前とスコアを指定した座標に表示
-	void PrintRecord(int y, int x)
+	// Top3の名前とスコアを指定した座標に表示
+	void PrintRecord(const int y, const int x)
 	{
 		RECORDS records;
 		FILE *fp = fopen("save.dat", "rb");
@@ -978,10 +1038,14 @@ public:
 		attrset(COLOR_PAIR(0));
 		fclose(fp);
 	}
+
+private:
+	//プレイヤーの名前を格納
+	char *playerName;
 };
 
 // puyoactiveとpuyostackのぷよの情報を統合する関数
-puyocolor Merge(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack, int y, int x)
+puyocolor Merge(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack, const int y, const int x)
 {
 	if (puyoactive.GetValue(y, x) != NONE){
 		return puyoactive.GetValue(y, x);
@@ -990,44 +1054,44 @@ puyocolor Merge(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack, int y, i
 	}
 }
 
-// 指定した座標に属性に従ってぷよを表示する
-void DisplayPuyo(int y, int x, puyocolor puyo)
+// 指定された座標に属性に従ってぷよを表示する
+void DisplayPuyo(const int y, const int x, const puyocolor puyo)
 {
 	switch (puyo){
 		case NONE:
-			mvaddch(y, x, '.');
-			if ( y == 0 && x == 5 ){ mvaddch(y, x, 'x'); }
+			mvaddch(y, x + 15, ' ');
+			if ( y == 0 && x == 5 ){ mvaddch(y, x + 15, 'x'); }
 			break;
 		case RED:
 			attrset(COLOR_PAIR(1));
 			//出力する文字色を変更
-			mvaddch(y, x, '@');
+			mvaddch(y, x + 15, '@');
 			attrset(COLOR_PAIR(0));
 			//出力する文字色を元に戻す
 			break;
 		case BLUE:
 			attrset(COLOR_PAIR(2));
-			mvaddch(y, x, '@');
+			mvaddch(y, x + 15, '@');
 			attrset(COLOR_PAIR(0));
 			break;
 		case GREEN:
 			attrset(COLOR_PAIR(3));
-			mvaddch(y, x, '@');
+			mvaddch(y, x + 15, '@');
 			attrset(COLOR_PAIR(0));
 			break;
 		case YELLOW:
 			attrset(COLOR_PAIR(4));
-			mvaddch(y, x, '@');
+			mvaddch(y, x + 15, '@');
 			attrset(COLOR_PAIR(0));
 			break;
 		default:
-			mvaddch(y, x, '?');
+			mvaddch(y, x + 10, '?');
 			break;
 	}
 }
 
 // 画面表示
-void Display(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack, PuyoControl &control, int score)
+void Display(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack, PuyoControl &control, const int score)
 {
 	//落下中ぷよ表示
 	for (int y = 0; y < puyoactive.GetLine(); y++)
@@ -1038,12 +1102,18 @@ void Display(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack, PuyoControl
 		}
 	}
 
-	DisplayPuyo(1, puyoactive.GetColumn() + 2, control.GetStandByPuyo(1, 1));
-	DisplayPuyo(2, puyoactive.GetColumn() + 2, control.GetStandByPuyo(1, 2));
-	DisplayPuyo(4, puyoactive.GetColumn() + 2, control.GetStandByPuyo(2, 1));
-	DisplayPuyo(5, puyoactive.GetColumn() + 2, control.GetStandByPuyo(2, 2));
+	//枠を表示
+	for (int i = 0; i < puyoactive.GetLine() + 1; i++){ mvaddch(i, 14, '#'); }
+	for (int i = 0; i < puyoactive.GetLine() + 1; i++){ mvaddch(i, puyoactive.GetColumn() + 15, '#'); }
+	for (int i = 0; i < puyoactive.GetColumn() + 2; i++){ mvaddch(puyoactive.GetLine(), i + 14, '#'); }
 
-	//情報表示
+	//次と次の次に生成される待ちぷよを表示する
+	DisplayPuyo(1, puyoactive.GetColumn() + 3, control.GetStandByPuyo(1, 1));
+	DisplayPuyo(2, puyoactive.GetColumn() + 3, control.GetStandByPuyo(1, 2));
+	DisplayPuyo(4, puyoactive.GetColumn() + 3, control.GetStandByPuyo(2, 1));
+	DisplayPuyo(5, puyoactive.GetColumn() + 3, control.GetStandByPuyo(2, 2));
+
+	//盤面上にあるぷよの数をカウント
 	int count = 0;
 	for (int y = 0; y < puyoactive.GetLine(); y++)
 	{
@@ -1056,6 +1126,7 @@ void Display(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack, PuyoControl
 		}
 	}
 
+	//各種ステータス情報を表示
 	char state_msg[256];
 	sprintf(state_msg, "Field: %d x %d, Puyo number: %04d", puyoactive.GetLine(), puyoactive.GetColumn(), count);
 	mvaddstr(2, COLS - 35, state_msg);
@@ -1073,7 +1144,7 @@ void Display(PuyoArrayActive &puyoactive, PuyoArrayStack &puyostack, PuyoControl
 class GameControl
 {
 public:
-	// ゲームの進行に関わる変数を格納
+	// ゲームの進行に関わる変数を初期化
 	GameControl()
 	{
 		nextaction = 0;
@@ -1111,9 +1182,10 @@ public:
 			init_pair(5, COLOR_MAGENTA, COLOR_BLACK);
 	}
 
-	// ゲームの設定画面を表示して各パラメータの値（height, width, speed）を決定
+	// ゲームの設定画面を表示して盤面サイズを決定
 	void GameSetting(SaveData &save)
 	{
+		//プログラムを実行してはじめに立ち上がる設定画面
 		save.PrintRecord(4, COLS - 35);
 		mvprintw(4, 10, "*** WELCOME TO PUYO-PUYO! ***");
 		mvprintw(5, 10, "=============================");
@@ -1121,6 +1193,7 @@ public:
 		mvprintw(11, 10, "[<-] or [->] / [Enter]");
 		mvprintw(12, 10, "Select Field Size");
 		attrset(COLOR_PAIR(0));
+		//フィールドサイズは0から2の3段階でデフォルトは1
 		int fieldSize = 1;
 		while (1)
 		{
@@ -1132,6 +1205,8 @@ public:
 					case KEY_UP:
 						if (fieldSize < 2){
 							fieldSize++;
+							//選択した際にサウンドを再生する
+							system("mpg123 sound/select.mp3 >/dev/null 2>&1 &");
 						} else {
 							flash();
 						}
@@ -1140,27 +1215,33 @@ public:
 					case KEY_DOWN:
 						if (0 < fieldSize){
 							 fieldSize--;
+ 							//選択した際にサウンドを再生する
+							 system("mpg123 sound/select.mp3 >/dev/null 2>&1 &");
 						} else {
 							flash();
 						}
 						break;
 				}
 				//fieldSizeに従って盤面サイズを変更
+				mvprintw(7, 10, "Field Size: ");
+				attron(A_BLINK);
 				switch (fieldSize){
 					case 0:
-						mvprintw(7, 10, "Field Size: Small ");
+						mvprintw(7, 22, "Small ");
 						height = 8; width = 8;
 						break;
 					case 1:
-						mvprintw(7, 10, "Field Size: Normal");
+						mvprintw(7, 22, "Normal");
 						height = 12; width = 12;
 						break;
 					case 2:
-						mvprintw(7, 10, "Field Size: Large ");
+						mvprintw(7, 22, "Large ");
 						height = 14; width = 14;
 						break;
 				}
-				if (ch == '\n'){ break; }
+				attroff(A_BLINK);
+				//決定したときのサウンドを再生
+				if (ch == '\n'){ system("mpg123 sound/selected.mp3 >/dev/null 2>&1 &"); break; }
 			}
 			//盤面の大きさとぷよ落下速度は直接変更できないようにする
 			/*
@@ -1256,6 +1337,8 @@ public:
 				if (ch == '\n'){ break; }
 			}
 			*/
+			//盤面サイズを決定してから少し間を置いてゲーム開始
+			usleep(800000);
 			erase();
 			break;
 		}
@@ -1277,9 +1360,10 @@ public:
 		int delay = 0;
 		int waitCount = speed;
 
+		//スコアを記録
 		int score = 0;
 
-		// 落ちコン用ぷよ
+		// 落ちコンテスト用ぷよ
 		puyostack.SetValue(5, 3, BLUE);
 		puyostack.SetValue(6, 3, YELLOW);
 		puyostack.SetValue(7, 3, YELLOW);
@@ -1292,6 +1376,9 @@ public:
 		puyostack.SetValue(7, 5, YELLOW);
 		puyostack.SetValue(8, 5, YELLOW);
 
+		//bgmを再生
+		system("mpg123 -Z sound/bgm.mp3 >/dev/null 2>&1 &");
+
 		//メイン処理ループ
 		while (1)
 		{
@@ -1302,12 +1389,15 @@ public:
 				int ch;
 				ch = getch();
 
-				//Qの入力で終了
+				//qの入力で終了
 				if (ch == 'q')
 				{
 					end_score = score;
+					//終了時にbgmを停止
+					system("killall mpg123 >/dev/null 2>&1 &");
 					return;
 				}
+				//pの入力でポーズ
 				else if (ch == 'p')
 				{
 					break;
@@ -1331,10 +1421,15 @@ public:
 					control.RotateCounterClockwise(puyoactive, puyostack);
 					break;
 				case KEY_DOWN:
+					//落下速度を上昇させる
+					waitCount = 100;
 					//下ボタンを押すと下まで一瞬で落下する
+					//テトリスで使用する
+					/*
 					for (int i=0; i<puyoactive.GetLine()-1; i++){
 						control.MoveDown(puyoactive, puyostack);
 					}
+					*/
 					break;
 				default:
 					break;
@@ -1344,17 +1439,19 @@ public:
 				// 一定間隔で行う処理（ぷよ落下・着地判定・ゲームオーバー判定・表示など）
 				if (delay%waitCount == 0){
 					//ぷよ下に移動
-					control.MoveDown(puyoactive, puyostack);
+					control.MoveDown(puyoactive, puyostack, score);
 
 					//着地判定があると新しいぷよを生成
 					//ぷよ着地判定
 					if (control.LandingPuyo(puyoactive, puyostack))
 					{
+						system("mpg123 sound/landed.mp3 >/dev/null 2>&1 &");
 						//着地感のあるsleepを入れる
 						//着地判定された時点で少し待機
 						Display(puyoactive, puyostack, control, score);
 						usleep(200000);
 
+						//連鎖数=コンボ数をカウント
 						int comboCount = 1;
 						//連鎖が止まるまで落下・削除を実行
 						while(1){
@@ -1373,41 +1470,79 @@ public:
 							//【連鎖bonus】
 							int totalvanishednumber = control.VanishPuyo(puyostack);
 							control.AddComboBonus(comboCount);
+
+							//スコアを計算
 							score += totalvanishednumber * control.GetBonus() * 10;
+							//scoreに加算した後ボーナスの値を初期化
 							control.ResetBonus();
 
 							//ぷよが消滅した後の盤面を表示
 							Display(puyoactive, puyostack, control, score);
+
 							//ぷよに変化がなければぷよ生成に進む
-							if (totalvanishednumber == 0){
+							if (totalvanishednumber == 0)
+							{
+								//コンボ数表示の初期化
+								mvprintw(puyoactive.GetLine(), puyoactive.GetColumn() + 18, "          ");
+
+								//全消しボーナス判定
+								bool exist = false;
+								for (int y = 0; y < puyoactive.GetLine(); y++)
+								{
+									for (int x = 0; x < puyoactive.GetColumn(); x++)
+									{
+										if (puyostack.GetValue(y, x) != NONE){ exist = true; break; }
+									}
+								}
+								if ( exist == false ){
+									//scoreに全消しボーナス加算
+									score += 3600;
+									//全消しのテロップ
+									mvprintw(puyoactive.GetLine(), puyoactive.GetColumn() + 18, "PERFECT!!");
+									//全消しのサウンドを再生
+									system("mpg123 sound/perfect.mp3 >/dev/null 2>&1 &");
+								}
 								break;
-							} else {
+							}
+							else
+							{
+								//ぷよが消滅するサウンドを再生
+								system("mpg123 sound/vanished.mp3 >/dev/null 2>&1 &");
+								//コンボ数加算
 								comboCount++;
+								//コンボ数の表示
+								mvprintw(puyoactive.GetLine(), puyoactive.GetColumn() + 18, "%02d COMBO!!", comboCount - 1);
 								//ぷよが消滅して空きマスがある感じをだすためにsleepを入れる
 								//ぷよが消滅した時点で少し待機
 								usleep(200000);
 							}
 						}
+
 						//そのターンの処理がすべて終わった時点で詰んでないか確認
 						if (GameOverJudge(puyostack) == true)
 						{
 							flash();
 							end_score = score;
+							//サウンドを全て停止
+							system("killall mpg123 >/dev/null 2>&1 &");
 							return;
 						}
 						//着地していたら新しいぷよ生成
 						control.GeneratePuyo(puyoactive);
 					}
+					//時の流れをリセット
+					waitCount = 30000;
 				}
 				delay++;
 				//表示
 				Display(puyoactive, puyostack, control, score);
 			}
+			//ボーズ画面
 			mvprintw(6, COLS - 35, "Press 'p' to Continue");
-			// ポーズ画面
 			while (1)
 			{
 				int ch = getch();
+				//pが押されるとゲームに戻る
 				if (ch == 'p'){ clear(); break; }
 				else if (ch == 'q'){ return; }
 			}
@@ -1438,22 +1573,28 @@ public:
 		mvprintw(6, COLS - 35, "#   GAME OVER   #");
 		mvprintw(7, COLS - 35, "=================");
 		attrset(COLOR_PAIR(0));
-		//記録が残るスコアだったらここで登記
+		//記録が残るスコアだったらここで記録・表示
 		save.Save(end_score);
 
+		//ガイドを表示
 		mvprintw(9, COLS - 35, "Press 'r' to Continue");
 		mvprintw(10, COLS - 35, "Press 'q' to Quit");
+		//ゲームオーバーのサウンドを再生
+		system("mpg123 sound/gameover.mp3 >/dev/null 2>&1 &");
+		//ゲームオーバー画面からどうするかを受け付ける
 		while (1)
 		{
 			int ch = getch();
 			if (ch == 'q')
 			{
+				//ゲーム終了
 				erase();
 				nextaction = 0;
 				return;
 			}
 			else if (ch == 'r')
 			{
+				//設定画面に戻る
 				erase();
 				nextaction = 1;
 				return;
@@ -1468,21 +1609,30 @@ public:
 	}
 
 private:
+	//ゲームオーバー画面からどうするかの情報を格納
 	int nextaction;
+	//各種パラメータ
 	int height, width, speed;
+	//ゲームオーバー時のスコアを格納
 	int end_score;
 };
 
 //ここから実行される
-int main(int argc, char **argv){
+int main(int argc, char *argv[]){
 	GameControl game;
-	SaveData save;
+	//コマンドライン引数からプレイヤー名を受け取る変数
+	char *tmp;
+	//入力されていなければデフォルトの名前を使用
+	if (argc < 2){ tmp = NULL; } else { tmp = argv[1]; }
+	SaveData save(tmp);
+	//ゲームの初期化
 	game.InitGame();
 	while(1){
 		game.GameSetting(save);
 		game.GameMain();
 		//'q'を押すまたは詰みの時GameOver画面に移動
 		game.GameOver(save);
+		//GameOver関数の戻り値に従って次の動作を実行
 		if ( game.GetNextAction() == 0 ){	break; }
 		else { continue; }
 	}
